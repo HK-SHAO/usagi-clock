@@ -1,10 +1,11 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from "react";
 import {
-  frames as frameNumbers,
+  frameNumbers,
   frameRate,
   tiktokLoopFrame,
   alarmFrame,
   alarmLoopFrame,
+  clockStylesMapping,
 } from "../config";
 import { getFramePath } from "../utils/get-frame-path";
 import { ulaTiktokURL, ulaAlarmURL, ulaAlarmLoopURL } from "../audios";
@@ -72,8 +73,33 @@ export function ImagePlayer() {
   // 横竖屏状态
   const isPortraitRef = useRef(window.innerWidth < window.innerHeight);
 
-  // 音频是否被允许播放的状态
+  // 音频是否被允许播放的状态 - 仅通过播放按钮解锁
   const [isAudioAllowed, setIsAudioAllowed] = useState(false);
+
+  // 当前时间状态（用于时钟显示）
+  const [currentTime, setCurrentTime] = useState(() => {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  });
+
+  // 时钟容器引用
+  const clockRef = useRef<HTMLDivElement>(null);
+  // 当前应用的时钟样式
+  const currentClockStyleRef = useRef<React.CSSProperties>({});
+
+  /**
+   * 恢复音频上下文 - 核心函数
+   * 浏览器的自动播放策略要求用户交互后才能播放音频
+   */
+  const resumeAudio = useCallback(async () => {
+    const ctx = audioContextRef.current;
+    if (!ctx) return;
+
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
+    setIsAudioAllowed(true);
+  }, []);
 
   /**
    * 生成完整帧列表: 复用重复帧, 减少资源加载
@@ -93,9 +119,13 @@ export function ImagePlayer() {
     return list;
   }, [frameNumbers, startFrame, endFrame]);
 
-  // 去重后的帧列表
-  const uniqueFrames = useMemo(
-    () => Array.from(new Set(fullFrameList)),
+  const tiktokStart = useMemo(
+    () => fullFrameList.findIndex((f) => f === tiktokLoopFrame.l),
+    [fullFrameList],
+  );
+
+  const tiktokEnd = useMemo(
+    () => fullFrameList.findIndex((f) => f === tiktokLoopFrame.r),
     [fullFrameList],
   );
 
@@ -107,7 +137,7 @@ export function ImagePlayer() {
     let loadedCount = 0;
 
     const preloadImages = () => {
-      uniqueFrames.forEach((frame) => {
+      frameNumbers.forEach((frame) => {
         const path = getFramePath(frame);
         if (!path) return;
 
@@ -116,7 +146,7 @@ export function ImagePlayer() {
         img.onload = () => {
           loadedCount++;
           // 全部加载完成后可以触发首屏渲染优化
-          if (loadedCount === uniqueFrames.length) {
+          if (loadedCount === frameNumbers.length) {
             console.log("所有帧图片预加载完成");
           }
         };
@@ -142,7 +172,10 @@ export function ImagePlayer() {
       if (!ctx || !gain || !buffer) return;
 
       // 恢复被浏览器暂停的上下文
-      if (ctx.state === "suspended") void ctx.resume();
+      if (ctx.state === "suspended") {
+        ctx.resume();
+        return;
+      }
 
       const source = ctx.createBufferSource();
       source.buffer = buffer;
@@ -231,9 +264,8 @@ export function ImagePlayer() {
     // 初始化音频栈
     const initAudio = async () => {
       // 创建上下文和主音量节点
-      audioContextRef.current = new (
-        window.AudioContext || (window as any).webkitAudioContext
-      )();
+      const AudioContext = window.AudioContext;
+      audioContextRef.current = new AudioContext();
       masterGainRef.current = audioContextRef.current.createGain();
       masterGainRef.current.connect(audioContextRef.current.destination);
 
@@ -258,16 +290,6 @@ export function ImagePlayer() {
       }
     };
 
-    // 用户交互解锁音频（浏览器自动播放策略限制）
-    const unlockAudio = async () => {
-      if (!audioContextRef.current) return;
-      if (audioContextRef.current.state === "suspended") {
-        await audioContextRef.current.resume();
-      }
-      // 音频解锁后更新状态
-      checkAudioState();
-    };
-
     // 监听音频上下文状态变化
     const handleStateChange = () => {
       checkAudioState();
@@ -278,8 +300,6 @@ export function ImagePlayer() {
 
     // 订阅状态变化事件
     audioContextRef.current?.addEventListener("statechange", handleStateChange);
-    document.addEventListener("click", unlockAudio);
-    document.addEventListener("touchstart", unlockAudio);
 
     // 销毁时全量释放资源
     return () => {
@@ -289,8 +309,6 @@ export function ImagePlayer() {
         "statechange",
         handleStateChange,
       );
-      document.removeEventListener("click", unlockAudio);
-      document.removeEventListener("touchstart", unlockAudio);
     };
   }, [stopAllAudio]);
 
@@ -347,12 +365,6 @@ export function ImagePlayer() {
       switch (state) {
         case PlayerState.TIKTOK:
           // 滴答状态: 在tiktokLoopFrame区间内乒乓循环
-          const tiktokStart = fullFrameList.findIndex(
-            (f) => f === tiktokLoopFrame.l,
-          );
-          const tiktokEnd = fullFrameList.findIndex(
-            (f) => f === tiktokLoopFrame.r,
-          );
 
           let nextIndex = currentIndex + directionRef.current;
           if (nextIndex >= tiktokEnd || nextIndex <= tiktokStart) {
@@ -460,6 +472,27 @@ export function ImagePlayer() {
           }
         }
 
+        // 更新时钟时间（每帧更新）
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2, "0");
+        const m = String(now.getMinutes()).padStart(2, "0");
+        const timeStr = `${h}:${m}`;
+        setCurrentTime(timeStr);
+
+        // 更新时钟容器样式（动画）
+        const currentFrame = fullFrameList[currentFrameIndexRef.current];
+        if (currentFrame !== undefined) {
+          const frameStyle = clockStylesMapping[currentFrame];
+          if (frameStyle) {
+            // 当前帧有定义样式，更新引用
+            currentClockStyleRef.current = frameStyle;
+            if (clockRef.current) {
+              Object.assign(clockRef.current.style, frameStyle);
+            }
+          }
+          // 如果没有定义，保持之前的样式（沿用之前的变换）
+        }
+
         // 修正时间偏差, 避免累计误差导致掉帧
         lastFrameTimeRef.current = time - (delta % frameInterval);
       }
@@ -531,7 +564,7 @@ export function ImagePlayer() {
   useEffect(() => {
     if (!DEBUG) return;
     console.log(
-      `Debug模式已开启: 按${DEBUG_TRIGGER_KEY.toUpperCase()}键手动触发alarm, 按${DEBUG_RESET_KEY.toUpperCase()}键重置回tiktok状态`,
+      `Debug模式已开启: 按${DEBUG_TRIGGER_KEY.toUpperCase()}键手动触发alarm, 按${DEBUG_RESET_KEY.toUpperCase()}键重置回tiktok状态,`,
     );
     if (DEBUG_ALARM_MINUTE !== null) {
       console.log(
@@ -564,17 +597,11 @@ export function ImagePlayer() {
   const initialFrame = fullFrameList[currentFrameIndexRef.current]!;
   currentFrameRef.current = initialFrame;
 
-  // 点击播放按钮处理函数
-  const handlePlayButtonClick = async () => {
-    if (!audioContextRef.current) return;
-    if (audioContextRef.current.state === "suspended") {
-      await audioContextRef.current.resume();
-    }
-    setIsAudioAllowed(true);
-  };
+  // 点击播放按钮处理函数 - 用户交互解锁音频（浏览器自动播放策略限制）
+  const handlePlayButtonClick = resumeAudio;
 
   return (
-    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black">
+    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black select-none">
       <div
         ref={containerRef}
         className={`absolute transition-none will-change-transform ${
@@ -583,20 +610,37 @@ export function ImagePlayer() {
             : "w-full h-full inset-0"
         }`}
       >
-        {uniqueFrames.map((frame) => (
+        {frameNumbers.map((frame) => (
           <img
             key={frame}
             ref={(el) => void (frameImgRefs.current[frame] = el)}
+            alt={`f${frame}`}
             src={getFramePath(frame)}
-            className="absolute inset-0 w-full h-full object-cover object-center"
+            className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none"
             style={{
               visibility: frame === initialFrame ? "visible" : "hidden",
               transition: "none",
             }}
-            alt=""
-            decoding="async"
+            decoding="sync"
           />
         ))}
+
+        {/* 时钟容器 - 纯白色背景，显示24小时制时间 */}
+        <div
+          ref={clockRef}
+          className="absolute flex items-center justify-center p-0 shadow-none select-none rounded-lg transition-none"
+          style={{
+            backgroundColor: "#ffffff",
+            color: "#000000",
+            fontFamily: "Comic Sans MS, Comic Sans",
+            fontSize: "1.5rem",
+            fontWeight: "bold",
+            whiteSpace: "nowrap",
+            ...currentClockStyleRef.current,
+          }}
+        >
+          {currentTime}
+        </div>
       </div>
 
       {/* 音频未允许时的高斯模糊覆盖层和播放按钮 */}

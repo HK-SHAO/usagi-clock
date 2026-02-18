@@ -1,8 +1,8 @@
-import { frames } from "@/config";
+import { frameNumbers } from "@/config";
 
 const lines = [];
 
-for (const frame of frames) {
+for (const frame of frameNumbers) {
   lines.push(
     `export { default as f${frame} } from "../../assets/frames/${frame}.png";`,
   );
