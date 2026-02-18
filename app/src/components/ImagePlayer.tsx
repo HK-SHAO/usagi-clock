@@ -84,8 +84,6 @@ export function ImagePlayer() {
 
   // 时钟容器引用
   const clockRef = useRef<HTMLDivElement>(null);
-  // 当前应用的时钟样式
-  const currentClockStyleRef = useRef<React.CSSProperties>({});
 
   /**
    * 恢复音频上下文 - 核心函数
@@ -483,12 +481,8 @@ export function ImagePlayer() {
         const currentFrame = fullFrameList[currentFrameIndexRef.current];
         if (currentFrame !== undefined) {
           const frameStyle = clockStylesMapping[currentFrame];
-          if (frameStyle) {
-            // 当前帧有定义样式，更新引用
-            currentClockStyleRef.current = frameStyle;
-            if (clockRef.current) {
-              Object.assign(clockRef.current.style, frameStyle);
-            }
+          if (frameStyle && clockRef.current) {
+            Object.assign(clockRef.current.style, frameStyle);
           }
           // 如果没有定义，保持之前的样式（沿用之前的变换）
         }
@@ -555,7 +549,7 @@ export function ImagePlayer() {
       (f) => f === tiktokLoopFrame.l,
     );
     currentFrameIndexRef.current = tiktokStartIndex >= 0 ? tiktokStartIndex : 0;
-    console.log("🔙 Debug: 已重置回tiktok状态");
+    console.log("Debug: 已重置回tiktok状态");
   }, [fullFrameList, stopAllAudio]);
 
   /**
@@ -630,13 +624,12 @@ export function ImagePlayer() {
           ref={clockRef}
           className="absolute flex items-center justify-center p-0 shadow-none select-none rounded-lg transition-none"
           style={{
-            backgroundColor: "#ffffff",
-            color: "#000000",
+            backgroundColor: "#f7f5f6",
+            color: "#3a2320",
             fontFamily: "Comic Sans MS, Comic Sans",
-            fontSize: "1.5rem",
+            fontSize: "1rem",
             fontWeight: "bold",
             whiteSpace: "nowrap",
-            ...currentClockStyleRef.current,
           }}
         >
           {currentTime}

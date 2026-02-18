@@ -41,91 +41,18 @@ export const alarmFrame = 678;
 export const alarmLoopFrame = { l: 743, r: 788 };
 
 /**
- * 时钟容器每一帧的样式，位置用相对于图片左上角的相对位置（百分比）
+ * 时钟容器每一帧的样式，位置相对于所播放图片的正中心（百分比）
  * 支持属性：
- * - left: 水平位置（百分比）
- * - top: 垂直位置（百分比）
+ * - left: 水平位置（百分比），0% 表示图片中心，正数向右偏移
+ * - top: 垂直位置（百分比），0% 表示图片中心，正数向下偏移
  * - transform: CSS transform（支持translate, rotate, scale等）
  */
 export const clockStylesMapping: Record<number, CSSProperties> = {
   552: {
-    left: "59.61748633879782%",
-    top: "49.61290322580645%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
+    left: "calc(50% + 12vh)",
+    top: "calc(50% + -0.5vh)",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2)",
   },
-  556: {
-    left: "60.4919650273224%",
-    top: "49.3547%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  560: {
-    left: "59.071233879781424%",
-    top: "49.3547%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  563: {
-    left: "57.32255464480874%",
-    top: "49.35473225806452%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  567: {
-    left: "55.79250655737705%",
-    top: "49.2257%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  571: {
-    left: "54.80886885245902%",
-    top: "49.2257%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  575: {
-    left: "53.60668306010929%",
-    top: "49.2257%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  578: {
-    left: "54.48101693989071%",
-    top: "49.2257%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  678: {
-    left: "50.10943879781421%",
-    top: "50.7741%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  688: {
-    left: "50.54655846994535%",
-    top: "50.7741%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  690: {
-    left: "52.95097158469945%",
-    top: "53.61280967741935%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  692: {
-    left: "67.4864568306011%",
-    top: "58.12895806451613%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  693: {
-    left: "69.78158196721313%",
-    top: "58.38706451612903%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  695: {
-    left: "68.798%",
-    top: "54.77416129032258%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  696: {
-    left: "69.6723169398907%",
-    top: "53.74194193548387%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
-  698: {
-    left: "69.6723%",
-    top: "56.45157741935484%",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(1.2)",
-  },
+  556: {},
+  560: {},
 };
