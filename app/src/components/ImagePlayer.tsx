@@ -34,6 +34,8 @@ export function ImagePlayer() {
   const DEBUG = true;
   // 快捷键触发alarm: 按A键
   const DEBUG_TRIGGER_KEY = "a";
+  // 快捷键重置回tiktok状态: 按R键
+  const DEBUG_RESET_KEY = "r";
   // 测试alarm触发分钟: 设置为数字则到该分钟0秒自动触发alarm，设为null则关闭
   const DEBUG_ALARM_MINUTE: number | null = null;
 
@@ -58,7 +60,11 @@ export function ImagePlayer() {
   // 音频引用
   const tiktokAudioRef = useRef<HTMLAudioElement | null>(null);
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
-  const alarmLoopAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Web Audio API实现真正无缝循环
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const alarmLoopBufferRef = useRef<AudioBuffer | null>(null);
+  const alarmLoopSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const alarmLoopGainRef = useRef<GainNode | null>(null);
   // 横竖屏状态
   const isPortraitRef = useRef(window.innerWidth < window.innerHeight);
 
@@ -127,16 +133,74 @@ export function ImagePlayer() {
     tiktokAudioRef.current = new Audio(ulaTiktokURL);
     // 初始化报时音频
     alarmAudioRef.current = new Audio(ulaAlarmURL);
-    // 初始化报时循环音频
-    alarmLoopAudioRef.current = new Audio(ulaAlarmLoopURL);
-    alarmLoopAudioRef.current.loop = true;
+
+    // 初始化Web Audio上下文
+    const initWebAudio = async () => {
+      audioContextRef.current = new (
+        window.AudioContext || (window as any).webkitAudioContext
+      )();
+      // 加载循环音频buffer
+      const response = await fetch(ulaAlarmLoopURL);
+      const arrayBuffer = await response.arrayBuffer();
+      alarmLoopBufferRef.current =
+        await audioContextRef.current.decodeAudioData(arrayBuffer);
+      // 创建增益节点控制音量
+      alarmLoopGainRef.current = audioContextRef.current.createGain();
+      alarmLoopGainRef.current.connect(audioContextRef.current.destination);
+    };
+    initWebAudio();
+
+    // 播放循环音频（真正无缝）
+    const playAlarmLoop = () => {
+      if (
+        !audioContextRef.current ||
+        !alarmLoopBufferRef.current ||
+        !alarmLoopGainRef.current
+      )
+        return;
+      // 停止之前的播放
+      if (alarmLoopSourceRef.current) {
+        alarmLoopSourceRef.current.stop();
+        alarmLoopSourceRef.current.disconnect();
+      }
+      // 创建新的源节点
+      const source = audioContextRef.current.createBufferSource();
+      source.buffer = alarmLoopBufferRef.current;
+      source.loop = true;
+      source.connect(alarmLoopGainRef.current);
+      source.start(0);
+      alarmLoopSourceRef.current = source;
+    };
+
+    // 停止循环音频
+    const stopAlarmLoop = () => {
+      if (alarmLoopSourceRef.current) {
+        alarmLoopSourceRef.current.stop();
+        alarmLoopSourceRef.current.disconnect();
+        alarmLoopSourceRef.current = null;
+      }
+    };
+
+    // 报时音频播放结束后无缝播放循环音频
+    const handleAlarmEnded = () => {
+      if (
+        playerStateRef.current === PlayerState.ALARM ||
+        playerStateRef.current === PlayerState.ALARM_LOOP
+      ) {
+        playAlarmLoop();
+      }
+    };
+    alarmAudioRef.current.addEventListener("ended", handleAlarmEnded);
 
     // 用户交互后才能播放音频(浏览器策略限制)
     const playOnInteraction = async () => {
       try {
         await tiktokAudioRef.current?.load();
         await alarmAudioRef.current?.load();
-        await alarmLoopAudioRef.current?.load();
+        // 恢复AudioContext（浏览器限制）
+        if (audioContextRef.current?.state === "suspended") {
+          await audioContextRef.current.resume();
+        }
       } catch {}
       document.removeEventListener("click", playOnInteraction);
       document.removeEventListener("touchstart", playOnInteraction);
@@ -147,12 +211,13 @@ export function ImagePlayer() {
 
     // 销毁时释放音频资源
     return () => {
+      alarmAudioRef.current?.removeEventListener("ended", handleAlarmEnded);
+      stopAlarmLoop();
+      audioContextRef.current?.close();
       tiktokAudioRef.current?.pause();
       tiktokAudioRef.current = null;
       alarmAudioRef.current?.pause();
       alarmAudioRef.current = null;
-      alarmLoopAudioRef.current?.pause();
-      alarmLoopAudioRef.current = null;
     };
   }, []);
 
@@ -235,9 +300,6 @@ export function ImagePlayer() {
           if (nextAlarmIndex >= alarmLoopStart) {
             playerStateRef.current = PlayerState.ALARM_LOOP;
             alarmStartTimeRef.current = Date.now();
-            // 切换到报时循环音频
-            alarmAudioRef.current?.pause();
-            alarmLoopAudioRef.current?.play().catch(() => {});
             return alarmLoopStart;
           }
           return nextAlarmIndex;
@@ -260,7 +322,13 @@ export function ImagePlayer() {
             // 报时结束, 回到滴答状态
             if (Date.now() - alarmStartTimeRef.current >= alarmDuration) {
               playerStateRef.current = PlayerState.TIKTOK;
-              alarmLoopAudioRef.current?.pause();
+              // 停止Web Audio循环
+              if (alarmLoopSourceRef.current) {
+                alarmLoopSourceRef.current.stop();
+                alarmLoopSourceRef.current.disconnect();
+                alarmLoopSourceRef.current = null;
+              }
+              if (alarmAudioRef.current) alarmAudioRef.current.currentTime = 0;
               return fullFrameList.findIndex((f) => f === tiktokLoopFrame.l);
             }
             return loopStart;
@@ -319,9 +387,7 @@ export function ImagePlayer() {
               now.getMinutes() === DEBUG_ALARM_MINUTE &&
               now.getSeconds() === 0
             ) {
-              console.log(
-                `⏰ Debug: 到${DEBUG_ALARM_MINUTE}分0秒自动触发alarm`,
-              );
+              console.log(`Debug: 到${DEBUG_ALARM_MINUTE}分0秒自动触发alarm`);
               triggerAlarm();
             }
           }
@@ -365,8 +431,37 @@ export function ImagePlayer() {
     const alarmStartIndex = fullFrameList.findIndex((f) => f === alarmFrame);
     currentFrameIndexRef.current =
       alarmStartIndex >= 0 ? alarmStartIndex : currentFrameIndexRef.current;
-    // 播放报时音频
+    // 重置音频位置并播放报时音频
+    if (alarmAudioRef.current) alarmAudioRef.current.currentTime = 0;
+    // 停止之前的循环播放
+    if (alarmLoopSourceRef.current) {
+      alarmLoopSourceRef.current.stop();
+      alarmLoopSourceRef.current.disconnect();
+      alarmLoopSourceRef.current = null;
+    }
     alarmAudioRef.current?.play().catch(() => {});
+  }, [fullFrameList]);
+
+  /**
+   * 重置回tiktok状态
+   */
+  const resetToTiktok = useCallback(() => {
+    playerStateRef.current = PlayerState.TIKTOK;
+    // 暂停alarm相关音频并重置播放位置
+    alarmAudioRef.current?.pause();
+    if (alarmAudioRef.current) alarmAudioRef.current.currentTime = 0;
+    // 停止Web Audio循环
+    if (alarmLoopSourceRef.current) {
+      alarmLoopSourceRef.current.stop();
+      alarmLoopSourceRef.current.disconnect();
+      alarmLoopSourceRef.current = null;
+    }
+    // 跳回tiktok起始帧
+    const tiktokStartIndex = fullFrameList.findIndex(
+      (f) => f === tiktokLoopFrame.l,
+    );
+    currentFrameIndexRef.current = tiktokStartIndex >= 0 ? tiktokStartIndex : 0;
+    console.log("Debug: 已重置回tiktok状态");
   }, [fullFrameList]);
 
   /**
@@ -375,24 +470,34 @@ export function ImagePlayer() {
   useEffect(() => {
     if (!DEBUG) return;
     console.log(
-      `✅ Debug模式已开启: 按${DEBUG_TRIGGER_KEY.toUpperCase()}键可手动触发alarm`,
+      `Debug模式已开启: 按${DEBUG_TRIGGER_KEY.toUpperCase()}键手动触发alarm, 按${DEBUG_RESET_KEY.toUpperCase()}键重置回tiktok状态`,
     );
     if (DEBUG_ALARM_MINUTE !== null) {
       console.log(
-        `⏰ Debug自动触发: 将在第${DEBUG_ALARM_MINUTE}分0秒自动触发alarm`,
+        `Debug自动触发: 将在第${DEBUG_ALARM_MINUTE}分0秒自动触发alarm`,
       );
     }
 
     // 键盘快捷键触发
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === DEBUG_TRIGGER_KEY) {
-        console.log("🔔 Debug: 手动触发alarm");
+        console.log("Debug: 手动触发alarm");
         triggerAlarm();
+      }
+      if (e.key.toLowerCase() === DEBUG_RESET_KEY) {
+        resetToTiktok();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [DEBUG, DEBUG_TRIGGER_KEY, DEBUG_ALARM_MINUTE, triggerAlarm]);
+  }, [
+    DEBUG,
+    DEBUG_TRIGGER_KEY,
+    DEBUG_RESET_KEY,
+    DEBUG_ALARM_MINUTE,
+    triggerAlarm,
+    resetToTiktok,
+  ]);
 
   // 首屏直接渲染, 后续更新仅切换visibility, 无重绘闪烁
   const initialFrame = fullFrameList[currentFrameIndexRef.current]!;
