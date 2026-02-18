@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useCallback } from "react";
+import { useEffect, useRef, useMemo, useCallback, useState } from "react";
 import {
   frames as frameNumbers,
   frameRate,
@@ -71,6 +71,9 @@ export function ImagePlayer() {
   const alarmLoopSourceRef = useRef<AudioBufferSourceNode | null>(null);
   // 横竖屏状态
   const isPortraitRef = useRef(window.innerWidth < window.innerHeight);
+
+  // 音频是否被允许播放的状态
+  const [isAudioAllowed, setIsAudioAllowed] = useState(false);
 
   /**
    * 生成完整帧列表: 复用重复帧, 减少资源加载
@@ -248,16 +251,33 @@ export function ImagePlayer() {
 
     void initAudio();
 
+    // 检查音频是否已解锁
+    const checkAudioState = () => {
+      if (audioContextRef.current?.state === "running") {
+        setIsAudioAllowed(true);
+      }
+    };
+
     // 用户交互解锁音频（浏览器自动播放策略限制）
     const unlockAudio = async () => {
       if (!audioContextRef.current) return;
       if (audioContextRef.current.state === "suspended") {
         await audioContextRef.current.resume();
       }
-      document.removeEventListener("click", unlockAudio);
-      document.removeEventListener("touchstart", unlockAudio);
+      // 音频解锁后更新状态
+      checkAudioState();
     };
 
+    // 监听音频上下文状态变化
+    const handleStateChange = () => {
+      checkAudioState();
+    };
+
+    // 初始检查
+    checkAudioState();
+
+    // 订阅状态变化事件
+    audioContextRef.current?.addEventListener("statechange", handleStateChange);
     document.addEventListener("click", unlockAudio);
     document.addEventListener("touchstart", unlockAudio);
 
@@ -265,6 +285,10 @@ export function ImagePlayer() {
     return () => {
       stopAllAudio();
       void audioContextRef.current?.close();
+      audioContextRef.current?.removeEventListener(
+        "statechange",
+        handleStateChange,
+      );
       document.removeEventListener("click", unlockAudio);
       document.removeEventListener("touchstart", unlockAudio);
     };
@@ -540,6 +564,15 @@ export function ImagePlayer() {
   const initialFrame = fullFrameList[currentFrameIndexRef.current]!;
   currentFrameRef.current = initialFrame;
 
+  // 点击播放按钮处理函数
+  const handlePlayButtonClick = async () => {
+    if (!audioContextRef.current) return;
+    if (audioContextRef.current.state === "suspended") {
+      await audioContextRef.current.resume();
+    }
+    setIsAudioAllowed(true);
+  };
+
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black">
       <div
@@ -565,6 +598,35 @@ export function ImagePlayer() {
           />
         ))}
       </div>
+
+      {/* 音频未允许时的高斯模糊覆盖层和播放按钮 */}
+      {!isAudioAllowed && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-md bg-black/30">
+          <button
+            onClick={handlePlayButtonClick}
+            className="group flex items-center justify-center w-[20%] aspect-square rounded-full bg-black/30 hover:bg-white/30 transition-all duration-200"
+            aria-label="播放音频"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              className="w-[50%] aspect-square text-white"
+            >
+              <circle cx="12" cy="13" r="8" />
+              <path d="M5 3 2 6" />
+              <path d="m22 6-3-3" />
+              <path d="M6.38 18.7 4 21" />
+              <path d="M17.64 18.67 20 21" />
+              <path d="m9 13 2 2 4-4" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
