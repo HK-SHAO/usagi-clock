@@ -30,6 +30,13 @@ export function ImagePlayer() {
   // 报时持续时间(默认1分钟)
   const alarmDuration = 60 * 1000;
 
+  // ==================== Debug 配置 ====================
+  const DEBUG = true;
+  // 快捷键触发alarm: 按A键
+  const DEBUG_TRIGGER_KEY = "a";
+  // 测试alarm触发分钟: 设置为数字则到该分钟0秒自动触发alarm，设为null则关闭
+  const DEBUG_ALARM_MINUTE: number | null = null;
+
   // 状态引用
   const playerStateRef = useRef<PlayerState>(PlayerState.TIKTOK);
   // 播放方向: 1正序 -1倒序 (乒乓循环用)
@@ -74,7 +81,10 @@ export function ImagePlayer() {
   }, [frameNumbers, startFrame, endFrame]);
 
   // 去重后的帧列表
-  const uniqueFrames = useMemo(() => Array.from(new Set(fullFrameList)), [fullFrameList]);
+  const uniqueFrames = useMemo(
+    () => Array.from(new Set(fullFrameList)),
+    [fullFrameList],
+  );
 
   /**
    * 预加载所有图片帧: 利用浏览器空闲时间加载, 不阻塞主线程
@@ -284,12 +294,16 @@ export function ImagePlayer() {
         const nextFrame = fullFrameList[nextFrameIndex]!;
         if (currentFrameRef.current !== nextFrame) {
           // 隐藏上一帧
-          if (currentFrameRef.current && frameImgRefs.current[currentFrameRef.current]) {
-            frameImgRefs.current[currentFrameRef.current]!.style.visibility = 'hidden';
+          if (
+            currentFrameRef.current &&
+            frameImgRefs.current[currentFrameRef.current]
+          ) {
+            frameImgRefs.current[currentFrameRef.current]!.style.visibility =
+              "hidden";
           }
           // 显示当前帧
           if (frameImgRefs.current[nextFrame]) {
-            frameImgRefs.current[nextFrame]!.style.visibility = 'visible';
+            frameImgRefs.current[nextFrame]!.style.visibility = "visible";
           }
           currentFrameRef.current = nextFrame;
         }
@@ -297,6 +311,20 @@ export function ImagePlayer() {
         // 滴答状态下播放音频
         if (playerStateRef.current === PlayerState.TIKTOK) {
           playTiktokAudio(time);
+
+          // Debug: 到指定分钟0秒自动触发alarm
+          if (DEBUG && DEBUG_ALARM_MINUTE !== null) {
+            const now = new Date();
+            if (
+              now.getMinutes() === DEBUG_ALARM_MINUTE &&
+              now.getSeconds() === 0
+            ) {
+              console.log(
+                `⏰ Debug: 到${DEBUG_ALARM_MINUTE}分0秒自动触发alarm`,
+              );
+              triggerAlarm();
+            }
+          }
         }
 
         // 修正时间偏差, 避免累计误差导致掉帧
@@ -341,6 +369,31 @@ export function ImagePlayer() {
     alarmAudioRef.current?.play().catch(() => {});
   }, [fullFrameList]);
 
+  /**
+   * Debug功能初始化
+   */
+  useEffect(() => {
+    if (!DEBUG) return;
+    console.log(
+      `✅ Debug模式已开启: 按${DEBUG_TRIGGER_KEY.toUpperCase()}键可手动触发alarm`,
+    );
+    if (DEBUG_ALARM_MINUTE !== null) {
+      console.log(
+        `⏰ Debug自动触发: 将在第${DEBUG_ALARM_MINUTE}分0秒自动触发alarm`,
+      );
+    }
+
+    // 键盘快捷键触发
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === DEBUG_TRIGGER_KEY) {
+        console.log("🔔 Debug: 手动触发alarm");
+        triggerAlarm();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [DEBUG, DEBUG_TRIGGER_KEY, DEBUG_ALARM_MINUTE, triggerAlarm]);
+
   // 首屏直接渲染, 后续更新仅切换visibility, 无重绘闪烁
   const initialFrame = fullFrameList[currentFrameIndexRef.current]!;
   currentFrameRef.current = initialFrame;
@@ -357,17 +410,17 @@ export function ImagePlayer() {
       >
         {uniqueFrames.map((frame) => (
           <img
-          key={frame}
-          ref={(el) => frameImgRefs.current[frame] = el}
-          src={getFramePath(frame)}
-          className="absolute inset-0 w-full h-full object-cover object-center"
-          style={{
-            visibility: frame === initialFrame ? 'visible' : 'hidden',
-            transition: 'none'
-          }}
-          alt=""
-          decoding="sync"
-        />
+            key={frame}
+            ref={(el) => void (frameImgRefs.current[frame] = el)}
+            src={getFramePath(frame)}
+            className="absolute inset-0 w-full h-full object-cover object-center"
+            style={{
+              visibility: frame === initialFrame ? "visible" : "hidden",
+              transition: "none",
+            }}
+            alt=""
+            decoding="sync"
+          />
         ))}
       </div>
     </div>
