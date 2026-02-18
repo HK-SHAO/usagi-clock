@@ -57,14 +57,18 @@ export function ImagePlayer() {
   const frameImgRefs = useRef<Record<number, HTMLImageElement | null>>({});
   // 当前显示的帧号
   const currentFrameRef = useRef<number | null>(null);
-  // 音频引用
-  const tiktokAudioRef = useRef<HTMLAudioElement | null>(null);
-  const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
-  // Web Audio API实现真正无缝循环
+  // Web Audio 全局实例
   const audioContextRef = useRef<AudioContext | null>(null);
+  const masterGainRef = useRef<GainNode | null>(null);
+
+  // 预加载音频Buffer
+  const tiktokBufferRef = useRef<AudioBuffer | null>(null);
+  const alarmBufferRef = useRef<AudioBuffer | null>(null);
   const alarmLoopBufferRef = useRef<AudioBuffer | null>(null);
+
+  // 活动音频源
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const alarmLoopSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const alarmLoopGainRef = useRef<GainNode | null>(null);
   // 横竖屏状态
   const isPortraitRef = useRef(window.innerWidth < window.innerHeight);
 
@@ -126,100 +130,145 @@ export function ImagePlayer() {
   }, [fullFrameList]);
 
   /**
-   * 初始化音频对象
+   * 播放单次音频，自动管理生命周期
+   */
+  const playAudio = useCallback(
+    (buffer: AudioBuffer | null, onEnded?: () => void) => {
+      const ctx = audioContextRef.current;
+      const gain = masterGainRef.current;
+      if (!ctx || !gain || !buffer) return;
+
+      // 恢复被浏览器暂停的上下文
+      if (ctx.state === "suspended") void ctx.resume();
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(gain);
+
+      // 播放完成自动清理资源
+      source.onended = () => {
+        source.disconnect();
+        activeSourcesRef.current.delete(source);
+        onEnded?.();
+      };
+
+      activeSourcesRef.current.add(source);
+      source.start(0);
+    },
+    [],
+  );
+
+  /**
+   * 播放无缝循环音频
+   */
+  const playLoopAudio = useCallback((buffer: AudioBuffer | null) => {
+    const ctx = audioContextRef.current;
+    const gain = masterGainRef.current;
+    if (!ctx || !gain || !buffer) return;
+
+    // 停止已存在的循环播放
+    if (alarmLoopSourceRef.current) {
+      try {
+        alarmLoopSourceRef.current.stop();
+      } catch {}
+      alarmLoopSourceRef.current.disconnect();
+      alarmLoopSourceRef.current = null;
+    }
+
+    if (ctx.state === "suspended") void ctx.resume();
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(gain);
+    source.start(0);
+    alarmLoopSourceRef.current = source;
+  }, []);
+
+  /**
+   * 停止所有音频（单次+循环）
+   */
+  const stopAllAudio = useCallback(() => {
+    // 清理所有单次播放源
+    activeSourcesRef.current.forEach((source) => {
+      try {
+        source.stop();
+      } catch {}
+      source.disconnect();
+    });
+    activeSourcesRef.current.clear();
+
+    // 清理循环播放源
+    if (alarmLoopSourceRef.current) {
+      try {
+        alarmLoopSourceRef.current.stop();
+      } catch {}
+      alarmLoopSourceRef.current.disconnect();
+      alarmLoopSourceRef.current = null;
+    }
+  }, []);
+
+  /**
+   * 初始化Web Audio系统
    */
   useEffect(() => {
-    // 初始化滴答音频
-    tiktokAudioRef.current = new Audio(ulaTiktokURL);
-    // 初始化报时音频
-    alarmAudioRef.current = new Audio(ulaAlarmURL);
+    // 加载单个音频文件到Buffer
+    const loadAudioBuffer = async (
+      url: string,
+    ): Promise<AudioBuffer | null> => {
+      try {
+        const res = await fetch(url);
+        const buf = await res.arrayBuffer();
+        return await audioContextRef.current!.decodeAudioData(buf);
+      } catch {
+        return null;
+      }
+    };
 
-    // 初始化Web Audio上下文
-    const initWebAudio = async () => {
+    // 初始化音频栈
+    const initAudio = async () => {
+      // 创建上下文和主音量节点
       audioContextRef.current = new (
         window.AudioContext || (window as any).webkitAudioContext
       )();
-      // 加载循环音频buffer
-      const response = await fetch(ulaAlarmLoopURL);
-      const arrayBuffer = await response.arrayBuffer();
-      alarmLoopBufferRef.current =
-        await audioContextRef.current.decodeAudioData(arrayBuffer);
-      // 创建增益节点控制音量
-      alarmLoopGainRef.current = audioContextRef.current.createGain();
-      alarmLoopGainRef.current.connect(audioContextRef.current.destination);
-    };
-    initWebAudio();
+      masterGainRef.current = audioContextRef.current.createGain();
+      masterGainRef.current.connect(audioContextRef.current.destination);
 
-    // 播放循环音频（真正无缝）
-    const playAlarmLoop = () => {
-      if (
-        !audioContextRef.current ||
-        !alarmLoopBufferRef.current ||
-        !alarmLoopGainRef.current
-      )
-        return;
-      // 停止之前的播放
-      if (alarmLoopSourceRef.current) {
-        alarmLoopSourceRef.current.stop();
-        alarmLoopSourceRef.current.disconnect();
+      // 并行加载所有音频资源
+      const [tiktokBuf, alarmBuf, alarmLoopBuf] = await Promise.all([
+        loadAudioBuffer(ulaTiktokURL),
+        loadAudioBuffer(ulaAlarmURL),
+        loadAudioBuffer(ulaAlarmLoopURL),
+      ]);
+
+      tiktokBufferRef.current = tiktokBuf;
+      alarmBufferRef.current = alarmBuf;
+      alarmLoopBufferRef.current = alarmLoopBuf;
+    };
+
+    void initAudio();
+
+    // 用户交互解锁音频（浏览器自动播放策略限制）
+    const unlockAudio = async () => {
+      if (!audioContextRef.current) return;
+      if (audioContextRef.current.state === "suspended") {
+        await audioContextRef.current.resume();
       }
-      // 创建新的源节点
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = alarmLoopBufferRef.current;
-      source.loop = true;
-      source.connect(alarmLoopGainRef.current);
-      source.start(0);
-      alarmLoopSourceRef.current = source;
+      document.removeEventListener("click", unlockAudio);
+      document.removeEventListener("touchstart", unlockAudio);
     };
 
-    // 停止循环音频
-    const stopAlarmLoop = () => {
-      if (alarmLoopSourceRef.current) {
-        alarmLoopSourceRef.current.stop();
-        alarmLoopSourceRef.current.disconnect();
-        alarmLoopSourceRef.current = null;
-      }
-    };
+    document.addEventListener("click", unlockAudio);
+    document.addEventListener("touchstart", unlockAudio);
 
-    // 报时音频播放结束后无缝播放循环音频
-    const handleAlarmEnded = () => {
-      if (
-        playerStateRef.current === PlayerState.ALARM ||
-        playerStateRef.current === PlayerState.ALARM_LOOP
-      ) {
-        playAlarmLoop();
-      }
-    };
-    alarmAudioRef.current.addEventListener("ended", handleAlarmEnded);
-
-    // 用户交互后才能播放音频(浏览器策略限制)
-    const playOnInteraction = async () => {
-      try {
-        await tiktokAudioRef.current?.load();
-        await alarmAudioRef.current?.load();
-        // 恢复AudioContext（浏览器限制）
-        if (audioContextRef.current?.state === "suspended") {
-          await audioContextRef.current.resume();
-        }
-      } catch {}
-      document.removeEventListener("click", playOnInteraction);
-      document.removeEventListener("touchstart", playOnInteraction);
-    };
-
-    document.addEventListener("click", playOnInteraction);
-    document.addEventListener("touchstart", playOnInteraction);
-
-    // 销毁时释放音频资源
+    // 销毁时全量释放资源
     return () => {
-      alarmAudioRef.current?.removeEventListener("ended", handleAlarmEnded);
-      stopAlarmLoop();
-      audioContextRef.current?.close();
-      tiktokAudioRef.current?.pause();
-      tiktokAudioRef.current = null;
-      alarmAudioRef.current?.pause();
-      alarmAudioRef.current = null;
+      stopAllAudio();
+      void audioContextRef.current?.close();
+      document.removeEventListener("click", unlockAudio);
+      document.removeEventListener("touchstart", unlockAudio);
     };
-  }, []);
+  }, [stopAllAudio]);
 
   /**
    * 防抖处理横竖屏切换
@@ -254,15 +303,15 @@ export function ImagePlayer() {
   /**
    * 播放滴答音频: 精准每2秒播放一次
    */
-  const playTiktokAudio = useCallback((currentTime: number) => {
-    if (currentTime - lastTiktokAudioTimeRef.current >= tiktokAudioInterval) {
-      if (tiktokAudioRef.current) {
-        tiktokAudioRef.current.currentTime = 0;
-        tiktokAudioRef.current.play().catch(() => {});
+  const playTiktokAudio = useCallback(
+    (currentTime: number) => {
+      if (currentTime - lastTiktokAudioTimeRef.current >= tiktokAudioInterval) {
+        playAudio(tiktokBufferRef.current);
+        lastTiktokAudioTimeRef.current = currentTime;
       }
-      lastTiktokAudioTimeRef.current = currentTime;
-    }
-  }, []);
+    },
+    [playAudio],
+  );
 
   /**
    * 状态机逻辑: 处理不同状态下的帧计算
@@ -322,13 +371,7 @@ export function ImagePlayer() {
             // 报时结束, 回到滴答状态
             if (Date.now() - alarmStartTimeRef.current >= alarmDuration) {
               playerStateRef.current = PlayerState.TIKTOK;
-              // 停止Web Audio循环
-              if (alarmLoopSourceRef.current) {
-                alarmLoopSourceRef.current.stop();
-                alarmLoopSourceRef.current.disconnect();
-                alarmLoopSourceRef.current = null;
-              }
-              if (alarmAudioRef.current) alarmAudioRef.current.currentTime = 0;
+              stopAllAudio();
               return fullFrameList.findIndex((f) => f === tiktokLoopFrame.l);
             }
             return loopStart;
@@ -422,7 +465,6 @@ export function ImagePlayer() {
 
   /**
    * 暴露整点报时触发方法(可以通过ref调用)
-   * 这里预留外部调用入口
    */
   const triggerAlarm = useCallback(() => {
     if (playerStateRef.current !== PlayerState.TIKTOK) return;
@@ -431,38 +473,33 @@ export function ImagePlayer() {
     const alarmStartIndex = fullFrameList.findIndex((f) => f === alarmFrame);
     currentFrameIndexRef.current =
       alarmStartIndex >= 0 ? alarmStartIndex : currentFrameIndexRef.current;
-    // 重置音频位置并播放报时音频
-    if (alarmAudioRef.current) alarmAudioRef.current.currentTime = 0;
-    // 停止之前的循环播放
-    if (alarmLoopSourceRef.current) {
-      alarmLoopSourceRef.current.stop();
-      alarmLoopSourceRef.current.disconnect();
-      alarmLoopSourceRef.current = null;
-    }
-    alarmAudioRef.current?.play().catch(() => {});
-  }, [fullFrameList]);
+
+    // 停止所有现有音频，播放报时音频，结束后自动无缝接循环
+    stopAllAudio();
+    playAudio(alarmBufferRef.current, () => {
+      if (
+        playerStateRef.current === PlayerState.ALARM ||
+        playerStateRef.current === PlayerState.ALARM_LOOP
+      ) {
+        playLoopAudio(alarmLoopBufferRef.current);
+      }
+    });
+  }, [fullFrameList, stopAllAudio, playAudio, playLoopAudio]);
 
   /**
    * 重置回tiktok状态
    */
   const resetToTiktok = useCallback(() => {
     playerStateRef.current = PlayerState.TIKTOK;
-    // 暂停alarm相关音频并重置播放位置
-    alarmAudioRef.current?.pause();
-    if (alarmAudioRef.current) alarmAudioRef.current.currentTime = 0;
-    // 停止Web Audio循环
-    if (alarmLoopSourceRef.current) {
-      alarmLoopSourceRef.current.stop();
-      alarmLoopSourceRef.current.disconnect();
-      alarmLoopSourceRef.current = null;
-    }
+    // 停止所有音频
+    stopAllAudio();
     // 跳回tiktok起始帧
     const tiktokStartIndex = fullFrameList.findIndex(
       (f) => f === tiktokLoopFrame.l,
     );
     currentFrameIndexRef.current = tiktokStartIndex >= 0 ? tiktokStartIndex : 0;
-    console.log("Debug: 已重置回tiktok状态");
-  }, [fullFrameList]);
+    console.log("🔙 Debug: 已重置回tiktok状态");
+  }, [fullFrameList, stopAllAudio]);
 
   /**
    * Debug功能初始化
@@ -524,7 +561,7 @@ export function ImagePlayer() {
               transition: "none",
             }}
             alt=""
-            decoding="sync"
+            decoding="async"
           />
         ))}
       </div>
