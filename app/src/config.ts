@@ -1,4 +1,15 @@
-// 已有的图片的帧序号（省略的帧与上一帧完全一致，因此可复用上一张图片）
+/**
+ * 状态机的逻辑：
+ * 1. 整点报时，即分秒为0时，刚好播放到alarmFrame（同时播放音频ulaAlarm）
+ * 2. alarmFrame按顺序播放到alarmLoopFrame（音频ulaAlarmLoop），并在alarmLoopFrame之间循环播放（默认持续1分钟，可配置）
+ * 2. 其他状态下在tiktokLoopFrame之间“乒乓”循环播放，同时播放ulaTiktok（2秒的音频，精准每两秒播放一次）
+ */
+
+import type { CSSProperties } from "react";
+
+/**
+ * 已有的图片的帧序号（省略的帧与上一帧完全一致，因此可复用上一张图片）
+ */
 export const frames = [
   541, 545, 548, 552, 556, 560, 563, 567, 571, 575, 578, 582, 597, 601, 605,
   608, 646, 678, 688, 690, 691, 692, 693, 695, 696, 697, 698, 700, 701, 702,
@@ -9,8 +20,28 @@ export const frames = [
   778, 780, 781, 782, 783, 785, 786, 787, 788,
 ];
 
-// 视频帧率
+/**
+ * 视频帧率
+ */
 export const frameRate = 29.97;
 
-// 时钟相对于图片左上角的相对位置（百分比）
-export const clockPositionsMapping = {};
+/**
+ * Tiktok 状态时“乒乓”播放的开始和结束帧
+ */
+export const tiktokLoopFrame = { l: 556, r: 575 };
+
+/**
+ * 报警开始的关键帧
+ */
+export const alarmFrame = 678;
+
+/**
+ * 持续发出铃声时，从左到右循环播放的帧
+ */
+export const alarmLoopFrame = { l: 743, r: 788 };
+
+/**
+ * 这部分功能先不处理
+ * 时钟每一帧的样式，位置用相对于图片左上角的相对位置（百分比）
+ */
+export const clockStylesMapping: Record<number, CSSProperties> = {};

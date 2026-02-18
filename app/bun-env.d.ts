@@ -9,10 +9,12 @@ declare module "*.svg" {
 }
 
 declare module "*.png" {
-  /**
-   * A path to the PNG file
-   */
   const path: `${string}.png`;
+  export = path;
+}
+
+declare module "*.wav" {
+  const path: `${string}.wav`;
   export = path;
 }
 
