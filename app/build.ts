@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import plugin from "bun-plugin-tailwind";
-import { existsSync } from "fs";
+import { existsSync, copyFileSync } from "fs";
 import { rm } from "fs/promises";
 import path from "path";
 
@@ -167,5 +167,15 @@ const outputTable = result.outputs.map((output) => ({
 
 console.table(outputTable);
 const buildTime = (end - start).toFixed(2);
+
+// 复制静态资源
+const staticFiles = ["manifest.json", "favicon.webp"];
+console.log(`\n📦 Copying static assets...`);
+for (const file of staticFiles) {
+  const srcPath = path.join("src", file);
+  const destPath = path.join(outdir, file);
+  copyFileSync(srcPath, destPath);
+  console.log(`  Copied ${file}`);
+}
 
 console.log(`\n✅ Build completed in ${buildTime}ms\n`);

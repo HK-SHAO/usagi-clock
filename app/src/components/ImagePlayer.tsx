@@ -62,6 +62,9 @@ export function ImagePlayer() {
   const alarmBufferRef = useRef<AudioBuffer | null>(null);
   const alarmLoopBufferRef = useRef<AudioBuffer | null>(null);
 
+  // 预加载图片缓存
+  const preloadedImagesRef = useRef<Record<number, HTMLImageElement>>({});
+
   // 活动音频源
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const alarmLoopSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -212,7 +215,7 @@ export function ImagePlayer() {
   }, []);
 
   /**
-   * 初始化Web Audio系统
+   * 初始化Web Audio系统和图片预加载
    */
   useEffect(() => {
     // 加载单个音频文件到Buffer
@@ -226,6 +229,21 @@ export function ImagePlayer() {
       } catch {
         return null;
       }
+    };
+
+    // 预加载单个图片
+    const loadImage = async (
+      frame: number,
+    ): Promise<[number, HTMLImageElement]> => {
+      return new Promise((resolve, reject) => {
+        const path = getFramePath(frame);
+        if (!path) return;
+        const img = new Image();
+        img.src = path;
+        img.decoding = "async";
+        img.onload = () => resolve([frame, img]);
+        img.onerror = reject;
+      });
     };
 
     // 初始化音频栈
@@ -248,7 +266,22 @@ export function ImagePlayer() {
       alarmLoopBufferRef.current = alarmLoopBuf;
     };
 
-    void initAudio();
+    // 并行初始化音频和预加载所有图片
+    const initAll = async () => {
+      await Promise.all([
+        initAudio(),
+        // 预加载所有帧图片
+        Promise.all(frameNumbers.map((frame) => loadImage(frame))).then(
+          (loadedImages) => {
+            loadedImages.forEach(([frame, img]) => {
+              preloadedImagesRef.current[frame] = img;
+            });
+          },
+        ),
+      ]);
+    };
+
+    void initAll();
 
     // 检查音频是否已解锁
     const checkAudioState = () => {
