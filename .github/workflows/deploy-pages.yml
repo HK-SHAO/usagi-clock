@@ -20,9 +20,6 @@ jobs:
       # 初始化 Bunjs
       - name: Setup Bunjs
         uses: oven-sh/setup-bun@v2
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: bun
 
       # 安装依赖
       - name: Install dependencies
