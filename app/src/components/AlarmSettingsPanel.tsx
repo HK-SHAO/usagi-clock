@@ -119,6 +119,32 @@ export function AlarmSettingsPanel({
         >
           确定
         </button>
+
+        <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-500 space-y-1 text-center">
+          <p>
+            作者：
+            <a
+              href="https://github.com/HK-SHAO"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-[#3a2320] transition"
+            >
+              HK-SHAO
+            </a>
+          </p>
+          <p>
+            仓库：
+            <a
+              href="https://github.com/HK-SHAO/usagi-clock"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-[#3a2320] transition"
+            >
+              HK-SHAO/usagi-clock
+            </a>
+          </p>
+          <p>素材版权归ちいかわ原作者及动画官方所有</p>
+        </div>
       </div>
     </div>
   );
