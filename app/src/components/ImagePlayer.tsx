@@ -70,8 +70,6 @@ export function ImagePlayer() {
   // 活动音频源
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const alarmLoopSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  // 横竖屏状态
-  const isPortraitRef = useRef(window.innerWidth < window.innerHeight);
 
   // 音频是否被允许播放的状态 - 仅通过播放按钮解锁
   const [isAudioAllowed, setIsAudioAllowed] = useState(false);
@@ -309,36 +307,6 @@ export function ImagePlayer() {
       );
     };
   }, [stopAllAudio]);
-
-  /**
-   * 防抖处理横竖屏切换
-   */
-  const containerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    let resizeTimer: number | null = null;
-    const handleResize = () => {
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(() => {
-        isPortraitRef.current = window.innerWidth < window.innerHeight;
-        if (containerRef.current) {
-          // 直接操作dom更新类名, 不触发组件重渲染
-          if (isPortraitRef.current) {
-            containerRef.current.className =
-              "absolute rotate-90 w-[100vh] h-[100vw] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 transition-none will-change-transform";
-          } else {
-            containerRef.current.className =
-              "absolute w-full h-full inset-0 transition-none will-change-transform";
-          }
-        }
-      }, 100);
-    };
-
-    window.addEventListener("resize", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      if (resizeTimer) clearTimeout(resizeTimer);
-    };
-  }, []);
 
   /**
    * 播放滴答音频: 精准每2秒播放一次
@@ -596,21 +564,14 @@ export function ImagePlayer() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black select-none">
-      <div
-        ref={containerRef}
-        className={`absolute transition-none will-change-transform ${
-          isPortraitRef.current
-            ? "rotate-90 w-[100vh] h-[100vw] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
-            : "w-full h-full inset-0"
-        }`}
-      >
+      <div className="w-full h-full inset-0">
         {frameNumbers.map((frame) => (
           <img
             key={frame}
             ref={(el) => void (frameImgRefs.current[frame] = el)}
             alt={`f${frame}`}
             src={getFramePath(frame)}
-            className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none"
+            className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none aspect-video"
             style={{
               visibility: frame === initialFrame ? "visible" : "hidden",
               transition: "none",
@@ -622,14 +583,17 @@ export function ImagePlayer() {
         {/* 时钟容器 - 纯白色背景，显示24小时制时间 */}
         <div
           ref={clockRef}
-          className="absolute flex items-center justify-center p-0 shadow-none select-none rounded-lg transition-none"
+          className="absolute flex items-center justify-center p-0 shadow-none select-none transition-none rounded"
           style={{
+            "--unit": "max(0.5625 * 1cqw, 1cqh)",
             backgroundColor: "#f7f5f6",
             color: "#3a2320",
             fontFamily: "Comic Sans MS, Comic Sans",
-            fontSize: "1rem",
+            lineHeight: 0.95,
             fontWeight: "bold",
             whiteSpace: "nowrap",
+            textAlign: "center",
+            fontSize: "calc(2 * var(--unit))",
           }}
         >
           {currentTime}

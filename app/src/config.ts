@@ -49,9 +49,9 @@ export const alarmLoopFrame = { l: 743, r: 788 };
  */
 export const clockStylesMapping: Record<number, CSSProperties> = {
   552: {
-    left: "calc(50% + 12vh)",
-    top: "calc(50% + -0.5vh)",
-    transform: "translate(-50%, -50%) rotate(0deg) scale(2)",
+    left: "calc(50% + 12 * var(--unit))",
+    top: "calc(50% + -0.62 * var(--unit))",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
   },
   556: {},
   560: {},
