@@ -9,6 +9,7 @@ import {
 } from "../config";
 import { getFramePath } from "../utils/get-frame-path";
 import { ulaTiktokURL, ulaAlarmURL, ulaAlarmLoopURL } from "../audios";
+import { useDebugControls } from "../hooks/useDebugControls";
 
 // 播放器状态枚举
 enum PlayerState {
@@ -30,16 +31,6 @@ export function ImagePlayer() {
   const tiktokAudioInterval = 2000;
   // 报时持续时间(默认1分钟)
   const alarmDuration = 60 * 1000;
-
-  // ==================== Debug 配置 ====================
-  const DEBUG = true;
-  // 快捷键触发alarm: 按A键
-  const DEBUG_TRIGGER_KEY = "a";
-  // 快捷键重置回tiktok状态: 按R键
-  const DEBUG_RESET_KEY = "r";
-  // 测试alarm触发分钟: 设置为数字则到该分钟0秒自动触发alarm，设为null则关闭
-  const DEBUG_ALARM_MINUTE: number | null = null;
-
   // 状态引用
   const playerStateRef = useRef<PlayerState>(PlayerState.TIKTOK);
   // 播放方向: 1正序 -1倒序 (乒乓循环用)
@@ -58,6 +49,8 @@ export function ImagePlayer() {
   const frameImgRefs = useRef<Record<number, HTMLImageElement | null>>({});
   // 当前显示的帧号
   const currentFrameRef = useRef<number | null>(null);
+  const frameCountRef = useRef(0);
+  const lastFpsUpdateTimeRef = useRef(0);
   // Web Audio 全局实例
   const audioContextRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
@@ -424,18 +417,6 @@ export function ImagePlayer() {
         // 滴答状态下播放音频
         if (playerStateRef.current === PlayerState.TIKTOK) {
           playTiktokAudio(time);
-
-          // Debug: 到指定分钟0秒自动触发alarm
-          if (DEBUG && DEBUG_ALARM_MINUTE !== null) {
-            const now = new Date();
-            if (
-              now.getMinutes() === DEBUG_ALARM_MINUTE &&
-              now.getSeconds() === 0
-            ) {
-              console.log(`Debug: 到${DEBUG_ALARM_MINUTE}分0秒自动触发alarm`);
-              triggerAlarm();
-            }
-          }
         }
 
         // 更新时钟时间（每帧更新）
@@ -520,40 +501,18 @@ export function ImagePlayer() {
     console.log("Debug: 已重置回tiktok状态");
   }, [fullFrameList, stopAllAudio]);
 
-  /**
-   * Debug功能初始化
-   */
-  useEffect(() => {
-    if (!DEBUG) return;
-    console.log(
-      `Debug模式已开启: 按${DEBUG_TRIGGER_KEY.toUpperCase()}键手动触发alarm, 按${DEBUG_RESET_KEY.toUpperCase()}键重置回tiktok状态,`,
-    );
-    if (DEBUG_ALARM_MINUTE !== null) {
-      console.log(
-        `Debug自动触发: 将在第${DEBUG_ALARM_MINUTE}分0秒自动触发alarm`,
-      );
-    }
-
-    // 键盘快捷键触发
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() === DEBUG_TRIGGER_KEY) {
-        console.log("Debug: 手动触发alarm");
-        triggerAlarm();
-      }
-      if (e.key.toLowerCase() === DEBUG_RESET_KEY) {
-        resetToTiktok();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    DEBUG,
-    DEBUG_TRIGGER_KEY,
-    DEBUG_RESET_KEY,
-    DEBUG_ALARM_MINUTE,
+  // Debug控制
+  const { DebugUI } = useDebugControls({
     triggerAlarm,
     resetToTiktok,
-  ]);
+    currentFrameIndexRef,
+    fullFrameList,
+    rafIdRef,
+    animate,
+    clockRef,
+    frameImgRefs,
+    currentFrameRef,
+  });
 
   // 首屏直接渲染, 后续更新仅切换visibility, 无重绘闪烁
   const initialFrame = fullFrameList[currentFrameIndexRef.current]!;
@@ -586,10 +545,10 @@ export function ImagePlayer() {
           className="absolute flex items-center justify-center p-0 shadow-none select-none transition-none rounded"
           style={{
             "--unit": "max(0.5625 * 1cqw, 1cqh)",
-            backgroundColor: "#f7f5f6",
+            backgroundColor: "#f8f5f3",
             color: "#3a2320",
             fontFamily: "Comic Sans MS, Comic Sans",
-            lineHeight: 0.95,
+            lineHeight: 1,
             fontWeight: "bold",
             whiteSpace: "nowrap",
             textAlign: "center",
@@ -598,6 +557,7 @@ export function ImagePlayer() {
         >
           {currentTime}
         </div>
+        {DebugUI}
       </div>
 
       {/* 音频未允许时的高斯模糊覆盖层和播放按钮 */}

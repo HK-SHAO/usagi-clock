@@ -48,11 +48,59 @@ export const alarmLoopFrame = { l: 743, r: 788 };
  * - transform: CSS transform（支持translate, rotate, scale等）
  */
 export const clockStylesMapping: Record<number, CSSProperties> = {
-  552: {
-    left: "calc(50% + 12 * var(--unit))",
-    top: "calc(50% + -0.62 * var(--unit))",
+  // 552: {
+  //   left: "calc(50%)",
+  //   top: "calc(50%)",
+  //   transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  // },
+  541: {
+    left: "calc(50% + var(--unit) * (11.95 - 0 * 0.122))",
+    top: "calc(50% + var(--unit) * (-0.62 - 0 * 0.122))",
     transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
   },
-  556: {},
-  560: {},
+  552: {
+    left: "calc(50% + var(--unit) * (11.95 - 0 * 0.122))",
+    top: "calc(50% + var(--unit) * (-0.62 - 0 * 0.122))",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  },
+  556: {
+    left: "calc(50% + var(--unit) * (11.95 - 0 * 0.122))",
+    top: "calc(50% + var(--unit) * (-0.62 - 0 * 0.122))",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  },
+  560: {
+    left: "calc(50% + var(--unit) * (11.95 - 13 * 0.122))",
+    top: "calc(50% + var(--unit) * (-0.62 - 1 * 0.122))",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  },
+  563: {
+    left: "calc(50% + var(--unit) * (11.95 - 28 * 0.122))",
+    top: "calc(50% + var(--unit) * (-0.62 - 2 * 0.122))",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  },
+  567: {
+    left: "calc(50% + var(--unit) * (11.95 - 43 * 0.122))",
+    top: "calc(50% + var(--unit) * (-0.62 - 1 * 0.122))",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  },
+  571: {
+    left: "calc(50% + var(--unit) * (11.95 - 51 * 0.122))",
+    top: "calc(50% + var(--unit) * (-0.62 - 0 * 0.122))",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  },
+  575: {
+    left: "calc(50% + var(--unit) * (11.95 - 58 * 0.122))",
+    top: "calc(50% + var(--unit) * (-0.62 + 1 * 0.122))",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  },
+  646: {
+    left: "calc(50%)",
+    top: "calc(50%)",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
+  },
+  678: {
+    left: "calc(50%)",
+    top: "calc(50%)",
+    transform: "translate(-50%, -50%) rotate(0deg) scale(22)",
+  },
 };
