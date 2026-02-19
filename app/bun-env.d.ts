@@ -13,8 +13,18 @@ declare module "*.png" {
   export = path;
 }
 
+declare module "*.avif" {
+  const path: `${string}.avif`;
+  export = path;
+}
+
 declare module "*.wav" {
   const path: `${string}.wav`;
+  export = path;
+}
+
+declare module "*.ogg" {
+  const path: `${string}.ogg`;
   export = path;
 }
 

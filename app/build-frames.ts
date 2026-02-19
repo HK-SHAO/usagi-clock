@@ -4,7 +4,7 @@ const lines = [];
 
 for (const frame of frameNumbers) {
   lines.push(
-    `export { default as f${frame} } from "../../assets/frames/${frame}.png";`,
+    `export { default as f${frame} } from "../../assets/frames_compressed/${frame}.avif";`,
   );
 }
 

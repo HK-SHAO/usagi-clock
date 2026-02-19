@@ -9,6 +9,8 @@ import {
 } from "../config";
 import { getFramePath } from "../utils/get-frame-path";
 import { ulaTiktokURL, ulaAlarmURL, ulaAlarmLoopURL } from "../audios";
+import { useAlarmSchedule } from "../hooks/useAlarmSchedule";
+import { AlarmSettingsPanel } from "./AlarmSettingsPanel";
 
 // 播放器状态枚举
 enum PlayerState {
@@ -74,6 +76,20 @@ export function ImagePlayer() {
 
   // 时钟容器引用
   const clockRef = useRef<HTMLDivElement>(null);
+  // 设置面板状态
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // 全屏状态
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  // 屏幕唤醒锁引用
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  // 报时时间段逻辑
+  const {
+    settings,
+    isInAlarmPeriod,
+    saveSettings,
+    checkIsInAlarmPeriod,
+    checkShouldTriggerAlarm,
+  } = useAlarmSchedule();
 
   /**
    * 恢复音频上下文 - 核心函数
@@ -116,39 +132,6 @@ export function ImagePlayer() {
     () => fullFrameList.findIndex((f) => f === tiktokLoopFrame.r),
     [fullFrameList],
   );
-
-  /**
-   * 预加载所有图片帧: 利用浏览器空闲时间加载, 不阻塞主线程
-   * 提前缓存到内存, 避免播放过程中出现卡顿
-   */
-  useEffect(() => {
-    let loadedCount = 0;
-
-    const preloadImages = () => {
-      frameNumbers.forEach((frame) => {
-        const path = getFramePath(frame);
-        if (!path) return;
-
-        const img = new Image();
-        img.src = path;
-        img.onload = () => {
-          loadedCount++;
-          // 全部加载完成后可以触发首屏渲染优化
-          if (loadedCount === frameNumbers.length) {
-            console.log("所有帧图片预加载完成");
-          }
-        };
-      });
-    };
-
-    // 浏览器空闲时预加载
-    if ("requestIdleCallback" in window) {
-      requestIdleCallback(preloadImages);
-    } else {
-      // 降级方案: 延迟1秒加载
-      setTimeout(preloadImages, 1000);
-    }
-  }, [fullFrameList]);
 
   /**
    * 播放单次音频，自动管理生命周期
@@ -379,6 +362,88 @@ export function ImagePlayer() {
     [fullFrameList],
   );
 
+  function changeFrame(frameNumber: number) {
+    const frame = fullFrameList[frameNumber]!;
+    // 立即切换显示帧，无需等待下一动画帧
+    if (currentFrameRef.current !== frame) {
+      // 隐藏当前帧
+      if (currentFrameRef.current && frameImgRefs.current) {
+        const img = frameImgRefs.current[currentFrameRef.current];
+        if (img) img.style.visibility = "hidden";
+      }
+      // 显示新的帧
+      if (frameImgRefs.current[frame]) {
+        frameImgRefs.current[frame].style.visibility = "visible";
+      }
+      // 更新时钟时间（每帧更新）
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, "0");
+      const m = String(now.getMinutes()).padStart(2, "0");
+      const timeStr = `${h}:${m}`;
+      setCurrentTime(timeStr);
+
+      // 更新时钟容器样式（动画）
+      const frameStyle = clockStylesMapping[frame];
+      if (frameStyle && clockRef.current) {
+        Object.assign(clockRef.current.style, frameStyle);
+      }
+
+      // 更新当前帧序号引用
+      currentFrameRef.current = frame;
+    }
+  }
+
+  /**
+   * 触发Alarm状态方法
+   */
+  const triggerAlarm = useCallback(() => {
+    playerStateRef.current = PlayerState.ALARM;
+    // 跳转到alarm起始帧
+    const alarmStartIndex = fullFrameList.findIndex((f) => f === alarmFrame);
+    if (alarmStartIndex !== -1) {
+      changeFrame((currentFrameIndexRef.current = alarmStartIndex));
+    }
+    // 停止所有现有音频，播放报时音频，结束后自动无缝接循环
+    stopAllAudio();
+    playAudio(alarmBufferRef.current, () => {
+      if (
+        playerStateRef.current === PlayerState.ALARM ||
+        playerStateRef.current === PlayerState.ALARM_LOOP
+      ) {
+        playLoopAudio(alarmLoopBufferRef.current);
+      }
+    });
+  }, [stopAllAudio, playAudio, playLoopAudio, fullFrameList]);
+
+  /**
+   * 重置回tiktok状态
+   */
+  const resetToTiktok = useCallback(() => {
+    playerStateRef.current = PlayerState.TIKTOK;
+    // 跳转到tiktok起始帧，重置播放方向
+    const tiktokStartIndex = fullFrameList.findIndex(
+      (f) => f === tiktokLoopFrame.l,
+    );
+    if (tiktokStartIndex !== -1) {
+      changeFrame((currentFrameIndexRef.current = tiktokStartIndex));
+    }
+    directionRef.current = 1;
+    // 重置滴答音频计时器，避免刚重置就播放音频
+    lastTiktokAudioTimeRef.current = performance.now();
+    // 停止所有音频
+    stopAllAudio();
+  }, [stopAllAudio, fullFrameList]);
+
+  const checkTriggerAlarm = useCallback(() => {
+    // 检查闹钟
+    const shouldAlarm = checkShouldTriggerAlarm();
+    if (shouldAlarm && playerStateRef.current === PlayerState.TIKTOK) {
+      triggerAlarm();
+    } else if (!shouldAlarm && playerStateRef.current !== PlayerState.TIKTOK) {
+      resetToTiktok();
+    }
+  }, [checkShouldTriggerAlarm, triggerAlarm, resetToTiktok]);
+
   /**
    * 渲染动画主循环: 用requestAnimationFrame实现高性能渲染
    * 避免不必要的state更新, 直接操作dom减少重渲染
@@ -391,125 +456,112 @@ export function ImagePlayer() {
 
       // 达到帧间隔时间才更新帧
       if (delta >= frameInterval) {
-        // 计算下一帧索引
-        const nextFrameIndex = getNextFrameIndex(currentFrameIndexRef.current);
-        currentFrameIndexRef.current = nextFrameIndex;
-
-        // 切换帧显示状态，仅修改visibility，无重绘闪烁
-        const nextFrame = fullFrameList[nextFrameIndex]!;
-        if (currentFrameRef.current !== nextFrame) {
-          // 隐藏上一帧
-          if (
-            currentFrameRef.current &&
-            frameImgRefs.current[currentFrameRef.current]
-          ) {
-            frameImgRefs.current[currentFrameRef.current]!.style.visibility =
-              "hidden";
-          }
-          // 显示当前帧
-          if (frameImgRefs.current[nextFrame]) {
-            frameImgRefs.current[nextFrame]!.style.visibility = "visible";
-          }
-          currentFrameRef.current = nextFrame;
-        }
-
         // 滴答状态下播放音频
         if (playerStateRef.current === PlayerState.TIKTOK) {
           playTiktokAudio(time);
         }
-
-        // 更新时钟时间（每帧更新）
-        const now = new Date();
-        const h = String(now.getHours()).padStart(2, "0");
-        const m = String(now.getMinutes()).padStart(2, "0");
-        const timeStr = `${h}:${m}`;
-        setCurrentTime(timeStr);
-
-        // 更新时钟容器样式（动画）
-        const currentFrame = fullFrameList[currentFrameIndexRef.current];
-        if (currentFrame !== undefined) {
-          const frameStyle = clockStylesMapping[currentFrame];
-          if (frameStyle && clockRef.current) {
-            Object.assign(clockRef.current.style, frameStyle);
-          }
-          // 如果没有定义，保持之前的样式（沿用之前的变换）
-        }
+        // 计算下一帧索引
+        const nextFrameIndex = getNextFrameIndex(currentFrameIndexRef.current);
+        // 切换帧显示状态，仅修改visibility，无重绘闪烁
+        changeFrame((currentFrameIndexRef.current = nextFrameIndex));
 
         // 修正时间偏差, 避免累计误差导致掉帧
         lastFrameTimeRef.current = time - (delta % frameInterval);
+
+        // 检查闹钟
+        checkTriggerAlarm();
       }
 
       // 继续下一帧
       rafIdRef.current = requestAnimationFrame(animate);
     },
-    [frameInterval, fullFrameList, getNextFrameIndex, playTiktokAudio],
+    [
+      frameInterval,
+      fullFrameList,
+      getNextFrameIndex,
+      playTiktokAudio,
+      checkTriggerAlarm,
+    ],
   );
 
   /**
    * 启动/停止动画循环
    */
   useEffect(() => {
-    // 初始帧定位到滴答循环起始帧
-    const initialIndex = fullFrameList.findIndex(
-      (f) => f === tiktokLoopFrame.l,
-    );
-    currentFrameIndexRef.current = initialIndex >= 0 ? initialIndex : 0;
-
     // 启动动画
+    resetToTiktok();
     rafIdRef.current = requestAnimationFrame(animate);
 
     // 组件销毁时停止动画
     return () => cancelAnimationFrame(rafIdRef.current);
-  }, [animate, fullFrameList]);
-
-  /**
-   * 暴露整点报时触发方法(可以通过ref调用)
-   */
-  const triggerAlarm = useCallback(() => {
-    if (playerStateRef.current !== PlayerState.TIKTOK) return;
-    playerStateRef.current = PlayerState.ALARM;
-    // 跳转到报时起始帧
-    const alarmStartIndex = fullFrameList.findIndex((f) => f === alarmFrame);
-    currentFrameIndexRef.current =
-      alarmStartIndex >= 0 ? alarmStartIndex : currentFrameIndexRef.current;
-
-    // 停止所有现有音频，播放报时音频，结束后自动无缝接循环
-    stopAllAudio();
-    playAudio(alarmBufferRef.current, () => {
-      if (
-        playerStateRef.current === PlayerState.ALARM ||
-        playerStateRef.current === PlayerState.ALARM_LOOP
-      ) {
-        playLoopAudio(alarmLoopBufferRef.current);
-      }
-    });
-  }, [fullFrameList, stopAllAudio, playAudio, playLoopAudio]);
-
-  /**
-   * 重置回tiktok状态
-   */
-  const resetToTiktok = useCallback(() => {
-    playerStateRef.current = PlayerState.TIKTOK;
-    // 停止所有音频
-    stopAllAudio();
-    // 跳回tiktok起始帧
-    const tiktokStartIndex = fullFrameList.findIndex(
-      (f) => f === tiktokLoopFrame.l,
-    );
-    currentFrameIndexRef.current = tiktokStartIndex >= 0 ? tiktokStartIndex : 0;
-    console.log("Debug: 已重置回tiktok状态");
-  }, [fullFrameList, stopAllAudio]);
+  }, [animate, fullFrameList, resetToTiktok]);
 
   // 首屏直接渲染, 后续更新仅切换visibility, 无重绘闪烁
   const initialFrame = fullFrameList[currentFrameIndexRef.current]!;
   currentFrameRef.current = initialFrame;
+
+  /**
+   * 请求屏幕唤醒锁，禁止熄屏
+   */
+  const requestWakeLock = useCallback(async () => {
+    try {
+      if ("wakeLock" in navigator) {
+        wakeLockRef.current = await navigator.wakeLock.request("screen");
+      }
+    } catch {}
+  }, []);
+
+  /**
+   * 释放屏幕唤醒锁，恢复正常熄屏
+   */
+  const releaseWakeLock = useCallback(async () => {
+    try {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      }
+    } catch {}
+  }, []);
+
+  /**
+   * 切换全屏状态
+   */
+  const toggleFullscreen = useCallback(async () => {
+    if (!document.fullscreenElement) {
+      await document.documentElement.requestFullscreen();
+      setIsFullscreen(true);
+      await requestWakeLock();
+    } else {
+      await document.exitFullscreen();
+      setIsFullscreen(false);
+      await releaseWakeLock();
+    }
+  }, [requestWakeLock, releaseWakeLock]);
+
+  /**
+   * 监听全屏状态变化，同步状态和唤醒锁
+   */
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+      if (!document.fullscreenElement) {
+        releaseWakeLock();
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      releaseWakeLock();
+    };
+  }, [releaseWakeLock]);
 
   // 点击播放按钮处理函数 - 用户交互解锁音频（浏览器自动播放策略限制）
   const handlePlayButtonClick = resumeAudio;
 
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black select-none">
-      <div className="w-full h-full inset-0">
+      <div className="w-full h-full inset-0" onClick={toggleFullscreen}>
         {frameNumbers.map((frame) => (
           <img
             key={frame}
@@ -528,7 +580,11 @@ export function ImagePlayer() {
         {/* 时钟容器 - 纯白色背景，显示24小时制时间 */}
         <div
           ref={clockRef}
-          className="absolute flex items-center justify-center p-0 shadow-none select-none transition-none rounded"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsSettingsOpen(true);
+          }}
+          className="absolute flex items-center justify-center p-0 shadow-none select-none transition-none rounded cursor-pointer"
           style={{
             "--unit": "max(0.5625 * 1cqw, 1cqh)",
             backgroundColor: "#f8f5f3",
@@ -536,7 +592,7 @@ export function ImagePlayer() {
             fontFamily: "Comic Sans MS, Comic Sans",
             lineHeight: 1,
             fontWeight: "bold",
-            whiteSpace: "nowrap",
+            whiteSpace: "bold",
             textAlign: "center",
             fontSize: "calc(2 * var(--unit))",
             ...clockStylesMapping[541],
@@ -574,6 +630,18 @@ export function ImagePlayer() {
           </button>
         </div>
       )}
+
+      {/* 报时设置面板 */}
+      <AlarmSettingsPanel
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        settings={settings}
+        onSave={(newSettings) => {
+          saveSettings(newSettings);
+          // 保存后立即检查当前状态
+          checkTriggerAlarm();
+        }}
+      />
     </div>
   );
 }
