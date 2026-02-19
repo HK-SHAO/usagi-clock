@@ -51,7 +51,7 @@ export function AlarmSettingsPanel({
               onChange={(e) =>
                 updateField("wholeHourAlarmEnabled", e.target.checked)
               }
-              className="w-5 h-5 accent-[#3a2320] cursor-pointer"
+              className="w-5 h-5 accent-[#3a2320] cursor-pointer opacity-50"
               id="wholeHourToggle"
             />
           </div>
@@ -70,7 +70,7 @@ export function AlarmSettingsPanel({
                 onChange={(e) =>
                   updateField("periodAlarmEnabled", e.target.checked)
                 }
-                className="w-5 h-5 accent-[#3a2320] cursor-pointer"
+                className="w-5 h-5 accent-[#3a2320] cursor-pointer opacity-50"
                 id="timeRangeToggle"
               />
             </div>
@@ -115,7 +115,7 @@ export function AlarmSettingsPanel({
 
         <button
           onClick={handleSave}
-          className="w-full py-3 rounded-lg bg-[#3a2320] text-white hover:bg-[#2c1a18] transition font-medium cursor-pointer"
+          className="w-full py-3 rounded-lg bg-[#3a2320]/50 text-white hover:bg-[#2c1a18]/80 transition font-medium cursor-pointer"
         >
           确定
         </button>

@@ -83,13 +83,8 @@ export function ImagePlayer() {
   // 屏幕唤醒锁引用
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   // 报时时间段逻辑
-  const {
-    settings,
-    isInAlarmPeriod,
-    saveSettings,
-    checkIsInAlarmPeriod,
-    checkShouldTriggerAlarm,
-  } = useAlarmSchedule();
+  const { settings, saveSettings, checkShouldTriggerAlarm } =
+    useAlarmSchedule();
 
   /**
    * 恢复音频上下文 - 核心函数
