@@ -89,13 +89,13 @@ export const clockStylesMapping: Record<number, CSSProperties> = {
     transform: "translate(-50%, -50%) rotate(0deg) scale(2.3)",
   },
   646: {
-    left: "calc(50%)  + var(--unit) * 0",
-    top: "calc(50%) + var(--unit) * 0",
+    left: "calc(50% + var(--unit) * 0)",
+    top: "calc(50% + var(--unit) * 0)",
     transform: "translate(-50%, -50%) rotate(0deg) scale(22)",
   },
   678: {
-    left: "calc(50%) + var(--unit) * 0",
-    top: "calc(50%) + var(--unit) * 0",
+    left: "calc(50% + var(--unit) * 0)",
+    top: "calc(50% + var(--unit) * 0)",
     transform: "translate(-50%, -50%) rotate(0deg) scale(22)",
   },
   688: {

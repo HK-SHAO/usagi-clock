@@ -9,7 +9,6 @@ import {
 } from "../config";
 import { getFramePath } from "../utils/get-frame-path";
 import { ulaTiktokURL, ulaAlarmURL, ulaAlarmLoopURL } from "../audios";
-import { useDebugControls } from "../hooks/useDebugControls";
 
 // 播放器状态枚举
 enum PlayerState {
@@ -501,19 +500,6 @@ export function ImagePlayer() {
     console.log("Debug: 已重置回tiktok状态");
   }, [fullFrameList, stopAllAudio]);
 
-  // Debug控制
-  const { DebugUI } = useDebugControls({
-    triggerAlarm,
-    resetToTiktok,
-    currentFrameIndexRef,
-    fullFrameList,
-    rafIdRef,
-    animate,
-    clockRef,
-    frameImgRefs,
-    currentFrameRef,
-  });
-
   // 首屏直接渲染, 后续更新仅切换visibility, 无重绘闪烁
   const initialFrame = fullFrameList[currentFrameIndexRef.current]!;
   currentFrameRef.current = initialFrame;
@@ -553,11 +539,11 @@ export function ImagePlayer() {
             whiteSpace: "nowrap",
             textAlign: "center",
             fontSize: "calc(2 * var(--unit))",
+            ...clockStylesMapping[541],
           }}
         >
           {currentTime}
         </div>
-        {DebugUI}
       </div>
 
       {/* 音频未允许时的高斯模糊覆盖层和播放按钮 */}
