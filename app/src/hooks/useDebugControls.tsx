@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { clockStylesMapping } from "../config";
 
 interface UseDebugControlsProps {
   triggerAlarm: () => void;
@@ -71,12 +72,22 @@ export function useDebugControls({
       frameImgRefs.current[currentFrame]!.style.visibility = "visible";
     }
     currentFrameRef.current = currentFrame;
+
+    // 同步clock样式
+    if (currentFrame !== undefined) {
+      const frameStyle = clockStylesMapping[currentFrame];
+      if (frameStyle && clockRef.current) {
+        Object.assign(clockRef.current.style, frameStyle);
+      }
+    }
+
     forceUpdate();
   }, [
     fullFrameList,
     currentFrameIndexRef,
     currentFrameRef,
     frameImgRefs,
+    clockRef,
     forceUpdate,
   ]);
 
@@ -199,7 +210,7 @@ export function useDebugControls({
 
   // Debug UI元素
   const DebugUI = debugEnabled ? (
-    <div className="fixed top-2 left-2 z-50 bg-black/80 text-white text-xs p-2 rounded font-mono pointer-events-none">
+    <div className="fixed top-2 left-2 z-50 bg-black/80 text-white text-xs p-2 rounded font-mono pointer-events-none w-80">
       <div>
         帧号: {fullFrameList[currentFrameIndexRef.current]} (索引:{" "}
         {currentFrameIndexRef.current})
@@ -208,6 +219,144 @@ export function useDebugControls({
         鼠标坐标: X:{mousePos.x} Y:{mousePos.y}
       </div>
       <div>状态: {isPaused ? "已暂停" : "播放中"}</div>
+      <div className="mt-2 space-y-2 pointer-events-auto">
+        {/* Left调节 */}
+        <div className="flex items-center gap-2">
+          <span className="w-12">Left:</span>
+          <input
+            type="range"
+            min={-50}
+            max={50}
+            step={0.1}
+            className="flex-1"
+            value={(() => {
+              const val = clockRef.current?.style.left || "";
+              const match = val.match(
+                /calc\(50% \+ var\(--unit\) \* (-?\d*\.?\d+)\)/,
+              );
+              return match ? parseFloat(match[1]) : 0;
+            })()}
+            onChange={(e) => {
+              if (clockRef.current) {
+                clockRef.current.style.left = `calc(50% + var(--unit) * ${e.target.value})`;
+                forceUpdate();
+              }
+            }}
+          />
+          <span className="w-10 text-right">
+            {(() => {
+              const val = clockRef.current?.style.left || "";
+              const match = val.match(
+                /calc\(50% \+ var\(--unit\) \* (-?\d*\.?\d+)\)/,
+              );
+              return match ? match[1] : "0";
+            })()}
+          </span>
+        </div>
+
+        {/* Top调节 */}
+        <div className="flex items-center gap-2">
+          <span className="w-12">Top:</span>
+          <input
+            type="range"
+            min={-50}
+            max={50}
+            step={0.1}
+            className="flex-1"
+            value={(() => {
+              const val = clockRef.current?.style.top || "";
+              const match = val.match(
+                /calc\(50% \+ var\(--unit\) \* (-?\d*\.?\d+)\)/,
+              );
+              return match ? parseFloat(match[1]) : 0;
+            })()}
+            onChange={(e) => {
+              if (clockRef.current) {
+                clockRef.current.style.top = `calc(50% + var(--unit) * ${e.target.value})`;
+                forceUpdate();
+              }
+            }}
+          />
+          <span className="w-10 text-right">
+            {(() => {
+              const val = clockRef.current?.style.top || "";
+              const match = val.match(
+                /calc\(50% \+ var\(--unit\) \* (-?\d*\.?\d+)\)/,
+              );
+              return match ? match[1] : "0";
+            })()}
+          </span>
+        </div>
+
+        {/* Rotate调节 */}
+        <div className="flex items-center gap-2">
+          <span className="w-12">Rotate:</span>
+          <input
+            type="range"
+            min={-180}
+            max={180}
+            step={1}
+            className="flex-1"
+            value={(() => {
+              const val = clockRef.current?.style.transform || "";
+              const match = val.match(/rotate\((-?\d*\.?\d+)deg\)/);
+              return match ? parseFloat(match[1]) : 0;
+            })()}
+            onChange={(e) => {
+              if (clockRef.current) {
+                const scaleMatch =
+                  clockRef.current.style.transform.match(
+                    /scale\((\d*\.?\d+)\)/,
+                  );
+                const scale = scaleMatch ? scaleMatch[1] : "1";
+                clockRef.current.style.transform = `translate(-50%, -50%) rotate(${e.target.value}deg) scale(${scale})`;
+                forceUpdate();
+              }
+            }}
+          />
+          <span className="w-10 text-right">
+            {() => {
+              const val = clockRef.current?.style.transform || "";
+              const match = val.match(/rotate\((-?\d*\.?\d+)deg\)/);
+              return match ? `${match[1]}°` : "0°";
+            }}
+          </span>
+        </div>
+
+        {/* Scale调节 */}
+        <div className="flex items-center gap-2">
+          <span className="w-12">Scale:</span>
+          <input
+            type="range"
+            min={1}
+            max={5}
+            step={0.1}
+            className="flex-1"
+            value={(() => {
+              const val = clockRef.current?.style.transform || "";
+              const match = val.match(/scale\((\d*\.?\d+)\)/);
+              return match ? parseFloat(match[1]) : 1;
+            })()}
+            onChange={(e) => {
+              if (clockRef.current) {
+                const rotateMatch = clockRef.current.style.transform.match(
+                  /rotate\((-?\d*\.?\d+)deg\)/,
+                );
+                const rotate = rotateMatch ? rotateMatch[1] : "0";
+                clockRef.current.style.transform = `translate(-50%, -50%) rotate(${rotate}deg) scale(${e.target.value})`;
+                forceUpdate();
+              }
+            }}
+          />
+          <span className="w-10 text-right">
+            {() => {
+              const val = clockRef.current?.style.transform || "";
+              const match = val.match(/scale\((\d*\.?\d+)\)/);
+              return match ? match[1] : "1";
+            }}
+          </span>
+        </div>
+      </div>
       <div className="mt-1 text-xs opacity-70">
         快捷键: ←/→ 切换帧, 空格 暂停/播放, A 触发alarm, R 重置, D 关闭debug
       </div>
