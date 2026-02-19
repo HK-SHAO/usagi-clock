@@ -11,6 +11,7 @@ import { getFramePath } from "../utils/get-frame-path";
 import { ulaTiktokURL, ulaAlarmURL, ulaAlarmLoopURL } from "../audios";
 import { useAlarmSchedule } from "../hooks/useAlarmSchedule";
 import { AlarmSettingsPanel } from "./AlarmSettingsPanel";
+import comicFontURL from "@/../../assets/clock-font.woff2";
 
 // 播放器状态枚举
 enum PlayerState {
@@ -556,6 +557,15 @@ export function ImagePlayer() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black select-none">
+      <style>{`
+        @font-face {
+          font-family: 'ClockFont';
+          src: url('${comicFontURL}') format('woff2');
+          font-weight: bold;
+          font-style: normal;
+          font-display: swap;
+        }
+      `}</style>
       <div className="w-full h-full inset-0" onClick={toggleFullscreen}>
         {frameNumbers.map((frame) => (
           <img
@@ -568,10 +578,9 @@ export function ImagePlayer() {
               visibility: frame === initialFrame ? "visible" : "hidden",
               transition: "none",
             }}
-            decoding="sync"
+            decoding="async"
           />
         ))}
-
         {/* 时钟容器 - 纯白色背景，显示24小时制时间 */}
         <div
           ref={clockRef}
@@ -579,13 +588,16 @@ export function ImagePlayer() {
             e.stopPropagation();
             setIsSettingsOpen(true);
           }}
-          className="absolute flex items-center justify-center p-0 shadow-none select-none transition-none rounded cursor-pointer"
+          className="absolute flex items-center justify-center p-0 shadow-none select-none transition-none cursor-pointer"
           style={{
             "--unit": "max(0.5625 * 1cqw, 1cqh)",
             backgroundColor: "#f8f5f3",
             color: "#3a2320",
-            fontFamily: "Comic Sans MS, Comic Sans",
-            lineHeight: 1,
+            fontFamily: "ClockFont",
+            lineHeight: 1.1,
+            paddingLeft: "calc(0.2 * var(--unit))",
+            paddingRight: "calc(0.5 * var(--unit))",
+            borderRadius: "calc(0.5 * var(--unit))",
             fontWeight: "bold",
             whiteSpace: "bold",
             textAlign: "center",

@@ -28,6 +28,11 @@ declare module "*.ogg" {
   export = path;
 }
 
+declare module "*.woff2" {
+  const path: `${string}.woff2`;
+  export = path;
+}
+
 declare module "*.module.css" {
   /**
    * A record of class names to their corresponding CSS module classes
