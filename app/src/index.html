@@ -22,6 +22,20 @@
     </head>
     <body>
         <div id="root"></div>
+        <!-- Google tag (gtag.js) -->
+        <script
+            async
+            src="https://www.googletagmanager.com/gtag/js?id=G-BV3YSXZYJX"
+        ></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag() {
+                dataLayer.push(arguments);
+            }
+            gtag("js", new Date());
+
+            gtag("config", "G-BV3YSXZYJX");
+        </script>
         <script type="module" src="./frontend.tsx"></script>
         <script>
             if ("serviceWorker" in navigator) {
@@ -39,6 +53,14 @@
                         });
                 });
             }
+
+            window.addEventListener("load", function () {
+                try {
+                    if (screen.orientation) {
+                        screen.orientation.lock("landscape");
+                    }
+                } catch {}
+            });
         </script>
     </body>
 </html>
