@@ -1,13 +1,13 @@
 {
   "name": "UsagiClock",
   "short_name": "UsagiClock",
-  "description": "Usagi Clock",
+  "description": "UsagiClock by HK-SHAO",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "landscape",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#f9eccc",
+  "theme_color": "#f9eccc",
   "icons": [
     {
       "src": "favicon.webp",
