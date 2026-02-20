@@ -589,7 +589,7 @@ export function ImagePlayer() {
   const handlePlayButtonClick = resumeAudio;
 
   return (
-    <div className="fixed inset-0 w-screen h-screen overflow-hidden bg-black select-none">
+    <div className="fixed inset-0 w-dvw h-dvh overflow-hidden bg-black select-none">
       <style>{`
         @font-face {
           font-family: 'ClockFont';
@@ -597,6 +597,13 @@ export function ImagePlayer() {
           font-weight: bold;
           font-style: normal;
           font-display: swap;
+        }
+        html, body {
+          margin: 0;
+          padding: 0;
+          width: 100dvw;
+          height: 100dvh;
+          overflow: hidden;
         }
       `}</style>
       <div className="w-full h-full inset-0" onClick={toggleFullscreen}>
@@ -606,13 +613,14 @@ export function ImagePlayer() {
             ref={(el) => void (frameImgRefs.current[frame] = el)}
             alt={`f${frame}`}
             src={getFramePath(frame)}
-            className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none aspect-video"
+            className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none"
             style={{
               zIndex: frame === initialFrame ? 10 : 1,
               visibility: "visible",
               transition: "none",
             }}
             decoding="sync"
+            loading="eager"
           />
         ))}
         {/* 时钟容器 - 纯白色背景，显示24小时制时间 */}
@@ -629,8 +637,8 @@ export function ImagePlayer() {
             color: "#3a2320",
             fontFamily: "ClockFont",
             lineHeight: 1.1,
-            paddingLeft: "calc(0 * var(--unit))",
-            paddingRight: "calc(0.2 * var(--unit))",
+            paddingLeft: "calc(0.5 * var(--unit))",
+            paddingRight: "calc(0.8 * var(--unit))",
             borderRadius: "calc(0.5 * var(--unit))",
             fontWeight: "bold",
             whiteSpace: "bold",
