@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
+        />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta
+            name="apple-mobile-web-app-status-bar-style"
+            content="black-translucent"
+        />
+        <meta name="apple-mobile-web-app-title" content="UsagiClock" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="theme-color" content="#f9eccc" />
+        <link rel="mask-icon" href="./favicon.webp" color="#f9eccc" />
+        <meta name="msapplication-TileColor" content="#f9eccc" />
+        <meta name="description" content="Usagi Clock" />
+        <link rel="apple-touch-icon" href="./favicon-r1n5ca42.webp" />
+        <link rel="manifest" href="./manifest.json" />
+        <link rel="icon" href="./favicon-r1n5ca42.webp" />
+        <title>UsagiClock</title>
+    <link rel="stylesheet" crossorigin href="./chunk-ftfxtr96.css"><script type="module" crossorigin src="./chunk-v5w4g8c8.js"></script></head>
+    <body>
+        <div id="root"></div>
+        <!-- Google tag (gtag.js) -->
+        <script
+            async
+            src="https://www.googletagmanager.com/gtag/js?id=G-BV3YSXZYJX"
+        ></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag() {
+                dataLayer.push(arguments);
+            }
+            gtag("js", new Date());
+
+            gtag("config", "G-BV3YSXZYJX");
+        </script>
+        
+        <script>
+            if ("serviceWorker" in navigator) {
+                window.addEventListener("load", () => {
+                    navigator.serviceWorker
+                        .register("sw.js")
+                        .then((registration) => {
+                            console.log("SW registered: ", registration);
+                        })
+                        .catch((registrationError) => {
+                            console.log(
+                                "SW registration failed: ",
+                                registrationError,
+                            );
+                        });
+                });
+            }
+
+            window.addEventListener("load", function () {
+                try {
+                    if (screen.orientation) {
+                        screen.orientation.lock("landscape");
+                    }
+                } catch {}
+            });
+        </script>
+    </body>
+</html>
