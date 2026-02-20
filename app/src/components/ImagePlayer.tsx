@@ -12,6 +12,11 @@ import { ulaTiktokURL, ulaAlarmURL, ulaAlarmLoopURL } from "../audios";
 import { useAlarmSchedule } from "../hooks/useAlarmSchedule";
 import { AlarmSettingsPanel } from "./AlarmSettingsPanel";
 import comicFontURL from "@/../../assets/clock-font.woff2";
+import {
+  exitFullscreen,
+  getFullscreenElement,
+  requestFullscreen,
+} from "@/utils/full-screen";
 
 // 播放器状态枚举
 enum PlayerState {
@@ -231,21 +236,6 @@ export function ImagePlayer() {
       }
     };
 
-    // 预加载单个图片
-    const loadImage = async (
-      frame: number,
-    ): Promise<[number, HTMLImageElement]> => {
-      return new Promise((resolve, reject) => {
-        const path = getFramePath(frame);
-        if (!path) return;
-        const img = new Image();
-        img.src = path;
-        img.decoding = "async";
-        img.onload = () => resolve([frame, img]);
-        img.onerror = reject;
-      });
-    };
-
     // 初始化音频栈
     const initAudio = async () => {
       // 创建上下文和主音量节点
@@ -268,17 +258,7 @@ export function ImagePlayer() {
 
     // 并行初始化音频和预加载所有图片
     const initAll = async () => {
-      await Promise.all([
-        initAudio(),
-        // 预加载所有帧图片
-        Promise.all(frameNumbers.map((frame) => loadImage(frame))).then(
-          (loadedImages) => {
-            loadedImages.forEach(([frame, img]) => {
-              preloadedImagesRef.current[frame] = img;
-            });
-          },
-        ),
-      ]);
+      await Promise.all([initAudio()]);
     };
 
     void initAll();
@@ -395,14 +375,14 @@ export function ImagePlayer() {
     const frame = fullFrameList[frameNumber]!;
     // 立即切换显示帧，无需等待下一动画帧
     if (currentFrameRef.current !== frame) {
-      // 隐藏当前帧
+      // 降低当前帧z-index
       if (currentFrameRef.current && frameImgRefs.current) {
         const img = frameImgRefs.current[currentFrameRef.current];
-        if (img) img.style.visibility = "hidden";
+        if (img) img.style.zIndex = "1";
       }
-      // 显示新的帧
+      // 提升新帧到顶层
       if (frameImgRefs.current[frame]) {
-        frameImgRefs.current[frame].style.visibility = "visible";
+        frameImgRefs.current[frame].style.zIndex = "10";
       }
       // 更新时钟时间（每帧更新）
       const now = new Date();
@@ -553,34 +533,54 @@ export function ImagePlayer() {
   }, []);
 
   /**
-   * 切换全屏状态
+   * 切换全屏状态（兼容所有主流浏览器，含iOS Safari特殊处理）
    */
   const toggleFullscreen = useCallback(async () => {
-    if (!document.fullscreenElement) {
-      await document.documentElement.requestFullscreen();
-      setIsFullscreen(true);
-      await requestWakeLock();
-    } else {
-      await document.exitFullscreen();
-      setIsFullscreen(false);
-      await releaseWakeLock();
+    const isFull = !!getFullscreenElement();
+    try {
+      if (!isFull) {
+        // iOS Safari 要求全屏请求必须在用户交互事件的同步流程中触发，不能放在await之后
+        await requestFullscreen(document.documentElement);
+        setIsFullscreen(true);
+        await requestWakeLock();
+      } else {
+        await exitFullscreen();
+        setIsFullscreen(false);
+        await releaseWakeLock();
+      }
+    } catch (e) {
+      // 处理部分浏览器自动拒绝全屏的情况（比如iOS受限制模式）
+      console.warn("Fullscreen operation failed:", e);
     }
   }, [requestWakeLock, releaseWakeLock]);
 
   /**
-   * 监听全屏状态变化，同步状态和唤醒锁
+   * 监听全屏状态变化（兼容所有浏览器前缀），同步状态和唤醒锁
    */
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-      if (!document.fullscreenElement) {
+      const isFull = !!getFullscreenElement();
+      setIsFullscreen(isFull);
+      if (!isFull) {
         releaseWakeLock();
       }
     };
 
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    // 监听所有前缀的全屏变化事件
+    const events = [
+      "fullscreenchange",
+      "webkitfullscreenchange",
+      "mozfullscreenchange",
+      "MSFullscreenChange",
+    ];
+    events.forEach((event) =>
+      document.addEventListener(event, handleFullscreenChange),
+    );
+
     return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      events.forEach((event) =>
+        document.removeEventListener(event, handleFullscreenChange),
+      );
       releaseWakeLock();
     };
   }, [releaseWakeLock]);
@@ -608,10 +608,11 @@ export function ImagePlayer() {
             src={getFramePath(frame)}
             className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none aspect-video"
             style={{
-              visibility: frame === initialFrame ? "visible" : "hidden",
+              zIndex: frame === initialFrame ? 10 : 1,
+              visibility: "visible",
               transition: "none",
             }}
-            decoding="async"
+            decoding="sync"
           />
         ))}
         {/* 时钟容器 - 纯白色背景，显示24小时制时间 */}
@@ -635,6 +636,7 @@ export function ImagePlayer() {
             whiteSpace: "bold",
             textAlign: "center",
             fontSize: "calc(2 * var(--unit))",
+            zIndex: 20,
             ...clockStylesMapping[541],
           }}
         >
