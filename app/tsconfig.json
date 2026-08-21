@@ -1,11 +1,9 @@
 {
   "compilerOptions": {
-    // Environment setup & latest features
     "lib": ["ESNext", "DOM"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
-    "jsx": "react-jsx",
     "allowJs": true,
 
     // Bundler mode
@@ -21,15 +19,9 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
 
-    "paths": {
-      "@/*": ["./src/*"]
-    },
-
-    // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noPropertyAccessFromIndexSignature": false
   },
-
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "build.ts", "build-frames.ts"]
 }

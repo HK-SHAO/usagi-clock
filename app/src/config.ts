@@ -5,8 +5,6 @@
  * 2. 其他状态下在tiktokLoopFrame之间“乒乓”循环播放，同时播放ulaTiktok（2秒的音频，精准每两秒播放一次）
  */
 
-import type { CSSProperties } from "react";
-
 /**
  * 已有的图片的帧序号（省略的帧与上一帧完全一致，因此可复用上一张图片）
  */
@@ -47,7 +45,7 @@ export const alarmLoopFrame = { l: 743, r: 788 };
  * - top: 垂直位置（百分比），0% 表示图片中心，正数向下偏移
  * - transform: CSS transform（支持translate, rotate, scale等）
  */
-export const clockStylesMapping: Record<number, CSSProperties> = {
+export const clockStylesMapping: Record<number, Record<string, string>> = {
   541: {
     left: "calc(50% + var(--unit) * 11.95)",
     top: "calc(50% + var(--unit) * -0.62)",
