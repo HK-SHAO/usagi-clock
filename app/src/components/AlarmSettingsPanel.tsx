@@ -1,5 +1,12 @@
 import { useState, useEffect } from "react";
 import { type AlarmSettings } from "../hooks/useAlarmSchedule";
+import {
+  fetchFollowState,
+  fetchRank,
+  openAuthorSpace,
+  type FollowState,
+  type RankData,
+} from "../utils/toy";
 
 interface AlarmSettingsPanelProps {
   isOpen: boolean;
@@ -15,12 +22,38 @@ export function AlarmSettingsPanel({
   onSave,
 }: AlarmSettingsPanelProps) {
   const [localSettings, setLocalSettings] = useState<AlarmSettings>(settings);
+  const [followState, setFollowState] = useState<FollowState>("unknown");
+  const [rank, setRank] = useState<RankData>({ list: [], mine: null });
 
   useEffect(() => {
     if (isOpen) {
       setLocalSettings(settings);
     }
   }, [isOpen, settings]);
+
+  // 打开面板时拉取关注关系与榜单；从作者空间返回（focus/visible）后刷新
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    const refresh = () => {
+      void fetchFollowState().then((s) => {
+        if (!cancelled) setFollowState(s);
+      });
+      void fetchRank().then((r) => {
+        if (!cancelled) setRank(r);
+      });
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [isOpen]);
+
+  const periodLocked = followState === "locked";
 
   const handleSave = () => {
     onSave(localSettings);
@@ -64,18 +97,28 @@ export function AlarmSettingsPanel({
               >
                 时间段闹钟
               </label>
-              <input
-                type="checkbox"
-                checked={localSettings.periodAlarmEnabled}
-                onChange={(e) =>
-                  updateField("periodAlarmEnabled", e.target.checked)
-                }
-                className="w-5 h-5 accent-[#3a2320] cursor-pointer opacity-50"
-                id="timeRangeToggle"
-              />
+              {periodLocked ? (
+                <button
+                  onClick={openAuthorSpace}
+                  className="text-xs px-3 py-1 rounded-full bg-[#3a2320]/10 text-[#3a2320] cursor-pointer hover:bg-[#3a2320]/20 transition"
+                >
+                  关注作者解锁
+                </button>
+              ) : (
+                <input
+                  type="checkbox"
+                  checked={localSettings.periodAlarmEnabled}
+                  onChange={(e) =>
+                    updateField("periodAlarmEnabled", e.target.checked)
+                  }
+                  className="w-5 h-5 accent-[#3a2320] cursor-pointer opacity-50 disabled:cursor-default"
+                  disabled={followState === "unknown"}
+                  id="timeRangeToggle"
+                />
+              )}
             </div>
 
-            {localSettings.periodAlarmEnabled && (
+            {localSettings.periodAlarmEnabled && !periodLocked && (
               <div className="flex items-center justify-between gap-3 pl-2 mt-3">
                 <div className="flex flex-col gap-1 flex-1">
                   <label className="text-xs text-gray-500">开始时间</label>
@@ -119,6 +162,42 @@ export function AlarmSettingsPanel({
         >
           确定
         </button>
+
+        {rank.list.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <p className="text-xs text-gray-500 mb-2 text-center">
+              陪伴榜 · 连续打卡天数
+            </p>
+            <ul className="space-y-1">
+              {rank.list.map((item) => (
+                <li
+                  key={item.rank}
+                  className="flex items-center gap-2 text-sm text-[#3a2320]"
+                >
+                  <span className="w-4 text-right text-xs text-gray-400">
+                    {item.rank}
+                  </span>
+                  <img
+                    src={item.avatar}
+                    alt=""
+                    className="w-5 h-5 rounded-full"
+                  />
+                  <span className="flex-1 truncate">{item.nickname}</span>
+                  <span className="text-xs text-gray-500">
+                    {item.score}天
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {rank.mine && (
+              <p className="mt-2 text-xs text-gray-500 text-center">
+                {rank.mine.ranked
+                  ? `我的排名：第 ${rank.mine.rank} 名 · ${rank.mine.score}天`
+                  : "我暂未上榜，明天继续打卡吧"}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-500 space-y-1 text-center">
           <p>

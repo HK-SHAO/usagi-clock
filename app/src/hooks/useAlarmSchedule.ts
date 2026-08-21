@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { loadCloudSettings, saveCloudSettings } from "../utils/toy";
 
 export interface AlarmSettings {
   periodAlarmEnabled: boolean;
@@ -23,8 +24,22 @@ const STORAGE_KEY = "usagi-clock-alarm-settings";
 export function useAlarmSchedule() {
   const [settings, setSettings] = useState<AlarmSettings>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+    return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
   });
+
+  // 挂载后拉取 Toy 云存储设置（跟随登录态跨设备），命中则覆盖本地
+  useEffect(() => {
+    let cancelled = false;
+    void loadCloudSettings<Partial<AlarmSettings>>().then((cloud) => {
+      if (cancelled || !cloud) return;
+      const merged = { ...DEFAULT_SETTINGS, ...cloud };
+      setSettings(merged);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [isInAlarmPeriod, setIsInAlarmPeriod] = useState(true);
 
@@ -66,6 +81,7 @@ export function useAlarmSchedule() {
   const saveSettings = useCallback((newSettings: AlarmSettings) => {
     setSettings(newSettings);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+    void saveCloudSettings(newSettings);
   }, []);
 
   return {

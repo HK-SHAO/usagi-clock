@@ -10,6 +10,7 @@ import {
 import { getFramePath } from "../utils/get-frame-path";
 import { ulaTiktokURL, ulaAlarmURL, ulaAlarmLoopURL } from "../audios";
 import { useAlarmSchedule } from "../hooks/useAlarmSchedule";
+import { useToyCheckin } from "../hooks/useToyCheckin";
 import { AlarmSettingsPanel } from "./AlarmSettingsPanel";
 import comicFontURL from "@/../../assets/clock-font.woff2";
 import {
@@ -94,6 +95,8 @@ export function ImagePlayer() {
   // 报时时间段逻辑
   const { settings, saveSettings, checkShouldTriggerAlarm } =
     useAlarmSchedule();
+  // Toy 每日打卡（云存储 + 陪伴榜）
+  useToyCheckin();
 
   /**
    * 恢复音频上下文 - 核心函数
