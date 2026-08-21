@@ -146,7 +146,7 @@ export function AlarmSettingsPanel({
                         .split(":")
                         .map(Number);
                       !Number.isNaN(h) && updateField("endHour", h);
-                      !Number.isNaN(h) && updateField("endMinute", m);
+                      !Number.isNaN(m) && updateField("endMinute", m);
                     }}
                     className="w-full p-2 border border-gray-300 rounded text-center cursor-text"
                   />

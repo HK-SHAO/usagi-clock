@@ -1,4 +1,5 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   frameNumbers,
   frameRate,
@@ -9,6 +10,7 @@ import {
 } from "../config";
 import { getFramePath } from "../utils/get-frame-path";
 import { ulaTiktokURL, ulaAlarmURL, ulaAlarmLoopURL } from "../audios";
+import alarmVideoURL from "../../../assets/alarm.mp4";
 import { useAlarmSchedule } from "../hooks/useAlarmSchedule";
 import { useToyCheckin } from "../hooks/useToyCheckin";
 import { AlarmSettingsPanel } from "./AlarmSettingsPanel";
@@ -29,10 +31,25 @@ enum PlayerState {
   ALARM_LOOP,
 }
 
+// 时钟样式取不超过当前帧的最近关键帧（等价于「保持上一帧样式」语义，
+// 同时支持视频播放时按时间换算的任意帧号）
+const clockStyleKeys = Object.keys(clockStylesMapping)
+  .map(Number)
+  .sort((a, b) => a - b);
+
+function clockStyleFor(frame: number): CSSProperties | undefined {
+  let style: CSSProperties | undefined;
+  for (const key of clockStyleKeys) {
+    if (key <= frame) style = clockStylesMapping[key];
+    else break;
+  }
+  return style;
+}
+
 export function ImagePlayer() {
-  // 配置常量
-  const startFrame = frameNumbers[0]!;
-  const endFrame = frameNumbers.at(-1)!;
+  // 配置常量：图片帧仅覆盖乒乓循环段，报时段由 alarm.mp4 视频播放
+  const startFrame = tiktokLoopFrame.l;
+  const endFrame = tiktokLoopFrame.r;
   // 每帧间隔时间(ms)
   const frameInterval = 1000 / frameRate;
   // 滴答音频播放间隔(2秒)
@@ -55,6 +72,8 @@ export function ImagePlayer() {
   const rafIdRef = useRef(0);
   // 所有帧图片dom引用map
   const frameImgRefs = useRef<Record<number, HTMLImageElement | null>>({});
+  // 报时视频dom引用
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   // 当前显示的帧号
   const currentFrameRef = useRef<number | null>(null);
   const frameCountRef = useRef(0);
@@ -138,6 +157,12 @@ export function ImagePlayer() {
   const tiktokEnd = useMemo(
     () => fullFrameList.findIndex((f) => f === tiktokLoopFrame.r),
     [fullFrameList],
+  );
+
+  // 图片帧列表（乒乓循环段）
+  const pingpongFrames = useMemo(
+    () => frameNumbers.filter((f) => f <= tiktokLoopFrame.r),
+    [],
   );
 
   /**
@@ -309,70 +334,17 @@ export function ImagePlayer() {
   );
 
   /**
-   * 状态机逻辑: 处理不同状态下的帧计算
+   * 状态机逻辑: 处理不同状态下的帧计算（仅图片乒乓段；报时段由视频驱动）
    */
-  const getNextFrameIndex = useCallback(
-    (currentIndex: number) => {
-      const state = playerStateRef.current;
-
-      switch (state) {
-        case PlayerState.TIKTOK:
-          // 滴答状态: 在tiktokLoopFrame区间内乒乓循环
-
-          let nextIndex = currentIndex + directionRef.current;
-          if (nextIndex >= tiktokEnd || nextIndex <= tiktokStart) {
-            directionRef.current *= -1;
-            nextIndex = nextIndex >= tiktokEnd ? tiktokEnd : tiktokStart;
-          }
-          return nextIndex;
-
-        case PlayerState.ALARM:
-          // 报时状态: 从alarmFrame正序播放到alarmLoopFrame起始帧
-          const alarmStart = fullFrameList.findIndex((f) => f === alarmFrame);
-          const alarmLoopStart = fullFrameList.findIndex(
-            (f) => f === alarmLoopFrame.l,
-          );
-
-          const nextAlarmIndex = currentIndex + 1;
-          // 播放到循环起始帧后切换到循环状态
-          if (nextAlarmIndex >= alarmLoopStart) {
-            playerStateRef.current = PlayerState.ALARM_LOOP;
-            alarmStartTimeRef.current = Date.now();
-            return alarmLoopStart;
-          }
-          return nextAlarmIndex;
-
-        case PlayerState.ALARM_LOOP:
-          // 报时循环状态: 在alarmLoopFrame区间内正序循环
-          const loopStart = fullFrameList.findIndex(
-            (f) => f === alarmLoopFrame.l,
-          );
-          const loopEnd = fullFrameList.findIndex(
-            (f) => f === alarmLoopFrame.r,
-          );
-
-          const nextLoopIndex = currentIndex + 1;
-          // 循环播放, 或者到时间后切换回滴答状态
-          if (
-            nextLoopIndex >= loopEnd ||
-            Date.now() - alarmStartTimeRef.current >= alarmDuration
-          ) {
-            // 报时结束, 回到滴答状态
-            if (Date.now() - alarmStartTimeRef.current >= alarmDuration) {
-              playerStateRef.current = PlayerState.TIKTOK;
-              stopAllAudio();
-              return fullFrameList.findIndex((f) => f === tiktokLoopFrame.l);
-            }
-            return loopStart;
-          }
-          return nextLoopIndex;
-
-        default:
-          return currentIndex;
-      }
-    },
-    [fullFrameList],
-  );
+  const getNextFrameIndex = useCallback((currentIndex: number) => {
+    // 滴答状态: 在tiktokLoopFrame区间内乒乓循环
+    let nextIndex = currentIndex + directionRef.current;
+    if (nextIndex >= tiktokEnd || nextIndex <= tiktokStart) {
+      directionRef.current *= -1;
+      nextIndex = nextIndex >= tiktokEnd ? tiktokEnd : tiktokStart;
+    }
+    return nextIndex;
+  }, [tiktokStart, tiktokEnd]);
 
   function changeFrame(frameNumber: number) {
     const frame = fullFrameList[frameNumber]!;
@@ -395,7 +367,7 @@ export function ImagePlayer() {
       setCurrentTime(timeStr);
 
       // 更新时钟容器样式（动画）
-      const frameStyle = clockStylesMapping[frame];
+      const frameStyle = clockStyleFor(frame);
       if (frameStyle && clockRef.current) {
         Object.assign(clockRef.current.style, frameStyle);
       }
@@ -406,14 +378,32 @@ export function ImagePlayer() {
   }
 
   /**
+   * 仅更新时钟（样式+时间），供报时视频按时间换算帧号使用
+   */
+  function changeFrameClock(frame: number) {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, "0");
+    const m = String(now.getMinutes()).padStart(2, "0");
+    setCurrentTime(`${h}:${m}`);
+
+    const frameStyle = clockStyleFor(frame);
+    if (frameStyle && clockRef.current) {
+      Object.assign(clockRef.current.style, frameStyle);
+    }
+    currentFrameRef.current = frame;
+  }
+
+  /**
    * 触发Alarm状态方法
    */
   const triggerAlarm = useCallback(() => {
     playerStateRef.current = PlayerState.ALARM;
-    // 跳转到alarm起始帧
-    const alarmStartIndex = fullFrameList.findIndex((f) => f === alarmFrame);
-    if (alarmStartIndex !== -1) {
-      changeFrame((currentFrameIndexRef.current = alarmStartIndex));
+    // 报时段改用视频播放：从头开始并显示
+    const video = videoRef.current;
+    if (video) {
+      video.currentTime = 0;
+      video.style.visibility = "visible";
+      void video.play();
     }
     // 停止所有现有音频，播放报时音频，结束后自动无缝接循环
     stopAllAudio();
@@ -425,13 +415,19 @@ export function ImagePlayer() {
         playLoopAudio(alarmLoopBufferRef.current);
       }
     });
-  }, [stopAllAudio, playAudio, playLoopAudio, fullFrameList]);
+  }, [stopAllAudio, playAudio, playLoopAudio]);
 
   /**
    * 重置回tiktok状态
    */
   const resetToTiktok = useCallback(() => {
     playerStateRef.current = PlayerState.TIKTOK;
+    // 隐藏报时视频
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.style.visibility = "hidden";
+    }
     // 跳转到tiktok起始帧，重置播放方向
     const tiktokStartIndex = fullFrameList.findIndex(
       (f) => f === tiktokLoopFrame.l,
@@ -459,29 +455,60 @@ export function ImagePlayer() {
   /**
    * 渲染动画主循环: 用requestAnimationFrame实现高性能渲染
    * 避免不必要的state更新, 直接操作dom减少重渲染
+   * TIKTOK 状态用图片乒乓；ALARM/ALARM_LOOP 状态用报时视频
    */
   const animate = useCallback(
     (time: number) => {
-      if (!lastFrameTimeRef.current) lastFrameTimeRef.current = time;
-      // 计算两帧时间差
-      const delta = time - lastFrameTimeRef.current;
+      const state = playerStateRef.current;
 
-      // 达到帧间隔时间才更新帧
-      if (delta >= frameInterval) {
-        // 滴答状态下播放音频
-        if (playerStateRef.current === PlayerState.TIKTOK) {
+      if (state === PlayerState.TIKTOK) {
+        if (!lastFrameTimeRef.current) lastFrameTimeRef.current = time;
+        // 计算两帧时间差
+        const delta = time - lastFrameTimeRef.current;
+
+        // 达到帧间隔时间才更新帧
+        if (delta >= frameInterval) {
+          // 滴答状态下播放音频
           playTiktokAudio(time);
+          // 计算下一帧索引
+          const nextFrameIndex = getNextFrameIndex(
+            currentFrameIndexRef.current,
+          );
+          // 切换帧显示状态，仅修改visibility，无重绘闪烁
+          changeFrame((currentFrameIndexRef.current = nextFrameIndex));
+
+          // 修正时间偏差, 避免累计误差导致掉帧
+          lastFrameTimeRef.current = time - (delta % frameInterval);
+
+          // 检查闹钟
+          checkTriggerAlarm();
         }
-        // 计算下一帧索引
-        const nextFrameIndex = getNextFrameIndex(currentFrameIndexRef.current);
-        // 切换帧显示状态，仅修改visibility，无重绘闪烁
-        changeFrame((currentFrameIndexRef.current = nextFrameIndex));
-
-        // 修正时间偏差, 避免累计误差导致掉帧
-        lastFrameTimeRef.current = time - (delta % frameInterval);
-
-        // 检查闹钟
-        checkTriggerAlarm();
+      } else {
+        // 报时状态: 帧号由视频播放进度换算
+        const video = videoRef.current;
+        if (video) {
+          const frame =
+            alarmFrame + Math.floor(video.currentTime * frameRate);
+          if (frame !== currentFrameRef.current) {
+            changeFrameClock(frame);
+          }
+          if (state === PlayerState.ALARM) {
+            // 播放到循环起始帧后切换到循环状态
+            if (frame >= alarmLoopFrame.l) {
+              playerStateRef.current = PlayerState.ALARM_LOOP;
+              alarmStartTimeRef.current = Date.now();
+            }
+          } else if (frame >= alarmLoopFrame.r) {
+            // 报时结束回到滴答；否则循环播放报时循环段（循环点为关键帧）
+            if (Date.now() - alarmStartTimeRef.current >= alarmDuration) {
+              resetToTiktok();
+            } else {
+              video.currentTime =
+                (alarmLoopFrame.l - alarmFrame) / frameRate;
+            }
+          }
+          checkTriggerAlarm();
+        }
       }
 
       // 继续下一帧
@@ -489,10 +516,11 @@ export function ImagePlayer() {
     },
     [
       frameInterval,
-      fullFrameList,
       getNextFrameIndex,
       playTiktokAudio,
       checkTriggerAlarm,
+      resetToTiktok,
+      alarmDuration,
     ],
   );
 
@@ -609,7 +637,7 @@ export function ImagePlayer() {
         style={{ containerType: "size" }}
         onClick={toggleFullscreen}
       >
-        {frameNumbers.map((frame) => (
+        {pingpongFrames.map((frame) => (
           <img
             key={frame}
             ref={(el) => void (frameImgRefs.current[frame] = el)}
@@ -625,6 +653,16 @@ export function ImagePlayer() {
             loading="eager"
           />
         ))}
+        {/* 报时段视频：仅 ALARM/ALARM_LOOP 状态显示 */}
+        <video
+          ref={videoRef}
+          src={alarmVideoURL}
+          muted
+          playsInline
+          preload="auto"
+          className="absolute inset-0 w-full h-full object-cover object-center select-none pointer-events-none"
+          style={{ visibility: "hidden", zIndex: 10 }}
+        />
         {/* 时钟容器 - 纯白色背景，显示24小时制时间 */}
         <div
           ref={clockRef}
