@@ -38,24 +38,13 @@ img {
   -webkit-user-select: none;
 }
 
-/* ── 帧容器（容器查询作用域） ── */
+/* ── 帧容器（容器查询作用域 + Canvas 渲染） ── */
 #stage {
+  display: block;
   position: relative;
   width: 100%;
   height: 100%;
   container-type: size;
-}
-
-/* ── 帧图片 ── */
-.frame-img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center;
-  pointer-events: none;
-  transition: none;
 }
 
 /* ── 时钟 ── */

@@ -26,7 +26,7 @@ function framePath(n: number): string {
  * 帧动画播放器：requestAnimationFrame 驱动的状态机
  *
  * 三态：TIKTOK（乒乓循环 + 滴答音）→ ALARM（报时过渡）→ ALARM_LOOP（循环 + 持续铃声）
- * 直接操作 DOM（z-index 切换），无框架开销
+ * Canvas 2D 渲染：drawImage 切换帧，零 DOM 开销
  */
 export class Player {
   private state = State.TIKTOK;
@@ -50,16 +50,21 @@ export class Player {
   private readonly tiktokStart: number;
   private readonly tiktokEnd: number;
 
-  // DOM 引用
-  private readonly imgMap = new Map<number, HTMLImageElement>();
+  // Canvas 渲染
+  private readonly ctx: CanvasRenderingContext2D;
+  private readonly frameImages = new Map<number, HTMLImageElement>();
   private currentFrame: number | null = null;
 
   constructor(
-    private readonly stage: HTMLElement,
+    private readonly canvas: HTMLCanvasElement,
     private readonly clockEl: HTMLElement,
     private readonly audio: AudioEngine,
     private readonly schedule: AlarmSchedule,
   ) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context not available");
+    this.ctx = ctx;
+
     // 构建完整帧列表（复用重复帧，减少图片数量）
     const start = frameNumbers[0]!;
     const end = frameNumbers.at(-1)!;
@@ -77,35 +82,56 @@ export class Player {
     this.tiktokStart = list.findIndex((f) => f === tiktokLoopFrame.l);
     this.tiktokEnd = list.findIndex((f) => f === tiktokLoopFrame.r);
 
-    // 创建所有帧 img 元素
+    // 创建所有帧的离屏 Image 对象（不挂载到 DOM）
     this.createFrameImages();
   }
 
-  /** 创建帧图片 DOM 并挂载到 stage */
+  /** 创建离屏 Image 对象用于帧解码 */
   private createFrameImages(): void {
     for (const n of frameNumbers) {
       const img = new Image();
       img.src = framePath(n);
-      img.alt = `f${n}`;
       img.decoding = "async";
-      img.loading = "eager";
-      img.className = "frame-img";
-      img.style.zIndex = n === this.fullFrameList[0] ? "10" : "1";
-
-      // 加载失败时隐藏，避免显示破碎图标
       img.onerror = () => {
-        img.style.display = "none";
+        // 加载失败时标记，drawFrame 会跳过
+        this.frameImages.delete(n);
       };
-
-      this.stage.appendChild(img);
-      this.imgMap.set(n, img);
+      this.frameImages.set(n, img);
     }
   }
 
-  /** 等待所有帧图片加载完成（失败不阻塞，超时 5s 后继续） */
+  /**
+   * 加载帧图片（两阶段）：
+   * Phase 1: 等待首帧加载完成 → 立即显示 + 启动动画
+   * Phase 2: 后台并行加载其余帧（不阻塞）
+   */
   async loadFrames(): Promise<void> {
-    const imgs = Array.from(this.imgMap.values());
-    const pending = imgs.filter((img) => !img.complete);
+    const firstFrame = tiktokLoopFrame.l;
+    const firstImg = this.frameImages.get(firstFrame);
+
+    // Phase 1: 等待首帧
+    if (firstImg && !firstImg.complete) {
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          firstImg.addEventListener("load", () => resolve(), { once: true });
+          firstImg.addEventListener("error", () => resolve(), { once: true });
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+      ]);
+    }
+
+    // 首帧就绪，立即绘制
+    this.drawFrame();
+
+    // Phase 2: 后台加载其余帧（不阻塞）
+    void this.loadRemainingFrames();
+  }
+
+  /** 后台加载其余帧 */
+  private async loadRemainingFrames(): Promise<void> {
+    const pending = Array.from(this.frameImages.values()).filter(
+      (img) => !img.complete,
+    );
     if (pending.length === 0) return;
 
     await Promise.race([
@@ -119,8 +145,44 @@ export class Player {
             }),
         ),
       ),
-      new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+      new Promise<void>((resolve) => setTimeout(resolve, 10000)),
     ]);
+  }
+
+  /** 同步 canvas 像素尺寸（含 DPR） */
+  syncSize(): void {
+    const dpr = devicePixelRatio || 1;
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    const pw = Math.round(w * dpr);
+    const ph = Math.round(h * dpr);
+    if (this.canvas.width !== pw || this.canvas.height !== ph) {
+      this.canvas.width = pw;
+      this.canvas.height = ph;
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  }
+
+  /** 绘制当前帧到 canvas（object-fit: cover 等效） */
+  private drawFrame(): void {
+    if (this.currentFrame == null) return;
+    const img = this.frameImages.get(this.currentFrame);
+    if (!img || !img.complete || !img.naturalWidth) return;
+
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    const cw = this.canvas.clientWidth;
+    const ch = this.canvas.clientHeight;
+    if (cw === 0 || ch === 0) return;
+
+    // object-fit: cover 计算
+    const scale = Math.max(cw / iw, ch / ih);
+    const sw = cw / scale;
+    const sh = ch / scale;
+    const sx = (iw - sw) / 2;
+    const sy = (ih - sh) / 2;
+
+    this.ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
   }
 
   /** 启动动画循环 */
@@ -141,19 +203,13 @@ export class Player {
 
   // ── 帧切换 ──
 
-  /** 切换到指定帧（直接操作 DOM，无重渲染） */
+  /** 切换到指定帧（Canvas drawImage） */
   private changeFrame(frameListIndex: number): void {
     const frame = this.fullFrameList[frameListIndex]!;
     if (this.currentFrame === frame) return;
 
-    // 降低旧帧
-    if (this.currentFrame != null) {
-      const old = this.imgMap.get(this.currentFrame);
-      if (old) old.style.zIndex = "1";
-    }
-    // 提升新帧
-    const next = this.imgMap.get(frame);
-    if (next) next.style.zIndex = "10";
+    this.currentFrame = frame;
+    this.drawFrame();
 
     // 更新时钟时间
     const now = new Date();
@@ -163,8 +219,6 @@ export class Player {
     // 更新时钟容器位置/样式
     const style = clockStylesMapping[frame];
     if (style) Object.assign(this.clockEl.style, style);
-
-    this.currentFrame = frame;
   }
 
   // ── 状态机 ──

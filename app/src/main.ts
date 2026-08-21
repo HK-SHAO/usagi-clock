@@ -11,7 +11,7 @@ import {
 } from "./utils/full-screen";
 
 // ── DOM 引用 ──
-const stage = document.getElementById("stage")!;
+const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const clockEl = document.getElementById("clock")!;
 const audioHint = document.getElementById("audio-hint")!;
 const settingsContainer = document.getElementById("settings-container")!;
@@ -28,8 +28,9 @@ async function init(): Promise<void> {
   // 并行初始化音频引擎和闹钟调度
   await Promise.all([audio.init(), schedule.load()]);
 
-  // 创建播放器，等待帧加载，然后启动动画
-  player = new Player(stage, clockEl, audio, schedule);
+  // 创建播放器，同步尺寸，等待首帧加载，然后启动动画
+  player = new Player(canvas, clockEl, audio, schedule);
+  player.syncSize();
   await player.loadFrames();
   player.start();
 
@@ -41,6 +42,7 @@ async function init(): Promise<void> {
   setupFullscreen();
   setupClockClick();
   setupVisibilityHandler();
+  setupResizeObserver();
 
   // 2秒后若未解锁，显示提示
   if (!audio.unlocked) {
@@ -90,7 +92,7 @@ async function toggleFullscreen(): Promise<void> {
 }
 
 function setupFullscreen(): void {
-  stage.addEventListener("click", () => { void toggleFullscreen(); });
+  canvas.addEventListener("click", () => { void toggleFullscreen(); });
 
   const onFsChange = () => {
     if (!getFullscreenElement() && wakeLock) {
@@ -122,6 +124,16 @@ function setupVisibilityHandler(): void {
       void audio.unlock();
     }
   });
+}
+
+// ── canvas 尺寸同步 ──
+function setupResizeObserver(): void {
+  const ro = new ResizeObserver(() => {
+    if (player) {
+      player.syncSize();
+    }
+  });
+  ro.observe(canvas);
 }
 
 // ── 启动 ──
