@@ -35,6 +35,21 @@
       </div>
       <!-- 设置面板容器 -->
       <div id="settings-container"></div>
+      <!-- 竖屏提示（仅小屏竖屏时显示，可关闭） -->
+      <div id="orientation-prompt">
+        <div class="orientation-card">
+          <svg class="orientation-icon" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="20" rx="2" />
+            <line x1="12" y1="18" x2="12" y2="18.01" />
+          </svg>
+          <div class="orientation-text">
+            横屏观看体验更佳<br />
+            <small>当然，竖屏也完全可以</small>
+          </div>
+          <button class="orientation-dismiss" id="orientation-dismiss">知道了</button>
+        </div>
+      </div>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>

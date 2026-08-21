@@ -48,6 +48,7 @@ async function init(): Promise<void> {
   setupClockClick();
   setupVisibilityHandler();
   setupResizeObserver();
+  setupOrientationPrompt();
 
   // 2秒后若未解锁，显示提示
   if (!audio.unlocked) {
@@ -149,6 +150,16 @@ function setupResizeObserver(): void {
     }
   });
   ro.observe(canvas);
+}
+
+// ── 竖屏提示：点击“知道了”后不再显示 ──
+function setupOrientationPrompt(): void {
+  const dismissBtn = document.getElementById("orientation-dismiss");
+  const overlay = document.getElementById("orientation-prompt");
+  if (!dismissBtn || !overlay) return;
+  dismissBtn.addEventListener("click", () => {
+    overlay.classList.add("dismissed");
+  });
 }
 
 // ── 启动 ──
