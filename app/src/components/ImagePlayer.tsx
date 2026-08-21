@@ -589,7 +589,7 @@ export function ImagePlayer() {
   const handlePlayButtonClick = resumeAudio;
 
   return (
-    <div className="fixed inset-0 w-dvw h-dvh overflow-hidden bg-black select-none">
+    <div className="absolute inset-0 w-full h-full overflow-hidden bg-black select-none">
       <style>{`
         @font-face {
           font-family: 'ClockFont';
@@ -598,15 +598,14 @@ export function ImagePlayer() {
           font-style: normal;
           font-display: swap;
         }
-        html, body {
-          margin: 0;
-          padding: 0;
-          width: 100dvw;
-          height: 100dvh;
-          overflow: hidden;
-        }
       `}</style>
-      <div className="w-full h-full inset-0" onClick={toggleFullscreen}>
+      {/* 声明为尺寸容器：时钟的 cqw/cqh 单位按播放器实际宽高计算，
+          在全屏、iframe 或任意容器内都能保持相对位置准确 */}
+      <div
+        className="relative w-full h-full"
+        style={{ containerType: "size" }}
+        onClick={toggleFullscreen}
+      >
         {frameNumbers.map((frame) => (
           <img
             key={frame}
