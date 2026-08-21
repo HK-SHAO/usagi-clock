@@ -6,9 +6,10 @@ import {
   alarmLoopFrame,
   clockStylesMapping,
 } from "./config";
-import * as frames from "./frames";
 import { AudioEngine } from "./audio";
 import { AlarmSchedule } from "./schedule";
+import { VideoFrameSource } from "./video-source";
+import { animationVideo } from "./video";
 
 // 播放器状态枚举
 const enum State {
@@ -17,16 +18,11 @@ const enum State {
   ALARM_LOOP,
 }
 
-/** 根据帧序号获取图片路径 */
-function framePath(n: number): string {
-  return (frames as Record<string, string>)[`f${n}`] ?? "";
-}
-
 /**
  * 帧动画播放器：requestAnimationFrame 驱动的状态机
  *
  * 三态：TIKTOK（乒乓循环 + 滴答音）→ ALARM（报时过渡）→ ALARM_LOOP（循环 + 持续铃声）
- * Canvas 2D 渲染：drawImage 切换帧，零 DOM 开销
+ * Canvas 2D 渲染：从单个 MP4 视频文件 seek + drawImage 提取帧，零 DOM 开销
  */
 export class Player {
   private state = State.TIKTOK;
@@ -56,8 +52,11 @@ export class Player {
 
   // Canvas 渲染
   private readonly ctx: CanvasRenderingContext2D;
-  private readonly frameImages = new Map<number, HTMLImageElement>();
+  private readonly videoSource = new VideoFrameSource();
+  // 视频首帧对应的原始帧序号（用于将 original frame → video index）
+  private readonly videoStartFrame: number;
   private currentFrame: number | null = null;
+  private seeking = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -68,6 +67,9 @@ export class Player {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context not available");
     this.ctx = ctx;
+
+    // 视频首帧对应的原始帧序号
+    this.videoStartFrame = frameNumbers[0]!;
 
     // 构建完整帧列表（复用重复帧，减少图片数量）
     const start = frameNumbers[0]!;
@@ -93,73 +95,19 @@ export class Player {
   }
 
   /**
-   * 加载帧图片（两阶段）：
-   * Phase 1: 仅创建并等待首帧 → 立即显示 + 启动动画
-   * Phase 2: 后台创建并加载其余帧（不阻塞）
+   * 加载视频文件并提取首帧：
+   * 1. fetch() 一次性加载整个 MP4 到内存（不依赖 Range 请求）
+   * 2. 创建 Blob URL → 隐藏 <video> 元素
+   * 3. seek 到首帧并绘制到 canvas
    */
   async loadFrames(): Promise<void> {
-    const firstFrame = tiktokLoopFrame.l;
+    await this.videoSource.load(animationVideo);
 
-    // 仅创建首帧 Image（避免 96 个并发请求抢占首帧带宽）
-    const firstImg = this.createImage(firstFrame);
-
-    // Phase 1: 等待首帧
-    if (firstImg && !firstImg.complete) {
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          firstImg.addEventListener("load", () => resolve(), { once: true });
-          firstImg.addEventListener("error", () => resolve(), { once: true });
-        }),
-        new Promise<void>((resolve) => setTimeout(resolve, 3000)),
-      ]);
+    // 绘制首帧（tiktok 循环起点）
+    const firstFrameIdx = this.fullFrameList.indexOf(tiktokLoopFrame.l);
+    if (firstFrameIdx !== -1) {
+      await this.videoSource.seekAndDraw(firstFrameIdx, this.canvas);
     }
-
-    // 首帧就绪，立即绘制
-    this.drawFrame();
-
-    // Phase 2: 后台创建并加载其余帧（不阻塞）
-    void this.loadRemainingFrames();
-  }
-
-  /** 创建单个离屏 Image 对象 */
-  private createImage(n: number): HTMLImageElement {
-    const img = new Image();
-    img.src = framePath(n);
-    img.decoding = "async";
-    img.onerror = () => {
-      this.frameImages.delete(n);
-    };
-    this.frameImages.set(n, img);
-    return img;
-  }
-
-  /** 后台创建并加载其余帧 */
-  private async loadRemainingFrames(): Promise<void> {
-    // 创建其余帧的 Image 对象（首帧已存在则跳过）
-    for (const n of frameNumbers) {
-      if (!this.frameImages.has(n)) {
-        this.createImage(n);
-      }
-    }
-
-    const pending = Array.from(this.frameImages.values()).filter(
-      (img) => !img.complete,
-    );
-    if (pending.length === 0) return;
-
-    await Promise.race([
-      Promise.all(
-        pending.map(
-          (img) =>
-            new Promise<void>((resolve) => {
-              if (img.complete) { resolve(); return; }
-              img.addEventListener("load", () => resolve(), { once: true });
-              img.addEventListener("error", () => resolve(), { once: true });
-            }),
-        ),
-      ),
-      new Promise<void>((resolve) => setTimeout(resolve, 10000)),
-    ]);
   }
 
   /** 同步 canvas 像素尺寸（含 DPR） */
@@ -176,26 +124,17 @@ export class Player {
     }
   }
 
-  /** 绘制当前帧到 canvas（object-fit: cover 等效） */
+  /** seek 当前帧到 canvas（异步，防重叠） */
   private drawFrame(): void {
-    if (this.currentFrame == null) return;
-    const img = this.frameImages.get(this.currentFrame);
-    if (!img || !img.complete || !img.naturalWidth) return;
-
-    const iw = img.naturalWidth;
-    const ih = img.naturalHeight;
-    const cw = this.canvas.clientWidth;
-    const ch = this.canvas.clientHeight;
-    if (cw === 0 || ch === 0) return;
-
-    // object-fit: cover 计算
-    const scale = Math.max(cw / iw, ch / ih);
-    const sw = cw / scale;
-    const sh = ch / scale;
-    const sx = (iw - sw) / 2;
-    const sy = (ih - sh) / 2;
-
-    this.ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+    if (this.currentFrame == null || this.seeking) return;
+    // 将原始帧序号转换为视频帧索引（0-based）
+    const videoIndex = this.currentFrame - this.videoStartFrame;
+    this.seeking = true;
+    void this.videoSource
+      .seekAndDraw(videoIndex, this.canvas)
+      .finally(() => {
+        this.seeking = false;
+      });
   }
 
   /** 启动动画循环 */
@@ -216,7 +155,7 @@ export class Player {
 
   // ── 帧切换 ──
 
-  /** 切换到指定帧（Canvas drawImage） */
+  /** 切换到指定帧（视频 seek + Canvas drawImage） */
   private changeFrame(frameListIndex: number): void {
     const frame = this.fullFrameList[frameListIndex]!;
     if (this.currentFrame === frame) return;
