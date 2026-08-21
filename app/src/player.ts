@@ -87,13 +87,40 @@ export class Player {
       const img = new Image();
       img.src = framePath(n);
       img.alt = `f${n}`;
-      img.decoding = "sync";
+      img.decoding = "async";
       img.loading = "eager";
       img.className = "frame-img";
       img.style.zIndex = n === this.fullFrameList[0] ? "10" : "1";
+
+      // 加载失败时隐藏，避免显示破碎图标
+      img.onerror = () => {
+        img.style.display = "none";
+      };
+
       this.stage.appendChild(img);
       this.imgMap.set(n, img);
     }
+  }
+
+  /** 等待所有帧图片加载完成（失败不阻塞，超时 5s 后继续） */
+  async loadFrames(): Promise<void> {
+    const imgs = Array.from(this.imgMap.values());
+    const pending = imgs.filter((img) => !img.complete);
+    if (pending.length === 0) return;
+
+    await Promise.race([
+      Promise.all(
+        pending.map(
+          (img) =>
+            new Promise<void>((resolve) => {
+              if (img.complete) { resolve(); return; }
+              img.addEventListener("load", () => resolve(), { once: true });
+              img.addEventListener("error", () => resolve(), { once: true });
+            }),
+        ),
+      ),
+      new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+    ]);
   }
 
   /** 启动动画循环 */

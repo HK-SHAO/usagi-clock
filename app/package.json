@@ -1,9 +1,16 @@
 {
   "name": "usagi-clock",
+  "version": "0.1.0",
+  "author": {
+    "name": "HK-SHAO",
+    "email": "HK-SHAO@outlook.com",
+    "url": "https://shao.fun"
+  },
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun run build.ts"
+    "build": "bun build.ts",
+    "dev": "bun src/index.html"
   },
   "devDependencies": {
     "@types/bun": "latest"

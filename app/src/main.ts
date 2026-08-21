@@ -28,8 +28,9 @@ async function init(): Promise<void> {
   // 并行初始化音频引擎和闹钟调度
   await Promise.all([audio.init(), schedule.load()]);
 
-  // 创建播放器并启动动画
+  // 创建播放器，等待帧加载，然后启动动画
   player = new Player(stage, clockEl, audio, schedule);
+  await player.loadFrames();
   player.start();
 
   // 每日打卡
