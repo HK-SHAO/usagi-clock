@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import plugin from "bun-plugin-tailwind";
-import { existsSync, copyFileSync } from "fs";
+import { existsSync } from "fs";
 import { rm } from "fs/promises";
 import path from "path";
 
@@ -151,6 +151,8 @@ const result = await Bun.build({
   minify: true,
   target: "browser",
   sourcemap: "none",
+  // Toy 页面运行在 /toy/<slug>/ 子路径下，资源一律走相对路径
+  publicPath: "./",
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
@@ -167,15 +169,5 @@ const outputTable = result.outputs.map((output) => ({
 
 console.table(outputTable);
 const buildTime = (end - start).toFixed(2);
-
-// 复制静态资源
-const staticFiles = ["manifest.json", "favicon.webp", "sw.js"];
-console.log(`\n📦 Copying static assets...`);
-for (const file of staticFiles) {
-  const srcPath = path.join("src", file);
-  const destPath = path.join(outdir, file);
-  copyFileSync(srcPath, destPath);
-  console.log(`  Copied ${file}`);
-}
 
 console.log(`\n✅ Build completed in ${buildTime}ms\n`);
