@@ -58,6 +58,7 @@ export class Player {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly frameImages = new Map<number, HTMLImageElement>();
   private currentFrame: number | null = null;
+  private lastClockDisplay = "";
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -68,6 +69,8 @@ export class Player {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context not available");
     this.ctx = ctx;
+    // 像素画使用最近邻插值，保持锐利边缘
+    ctx.imageSmoothingEnabled = false;
 
     // 构建完整帧列表（复用重复帧，减少图片数量）
     const start = frameNumbers[0]!;
@@ -224,12 +227,16 @@ export class Player {
     this.currentFrame = frame;
     this.drawFrame();
 
-    // 更新时钟时间
+    // 仅在分钟变化时更新时钟文字（避免每帧创建 Date + 写入 DOM）
     const now = new Date();
-    this.clockEl.textContent =
+    const display =
       `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    if (display !== this.lastClockDisplay) {
+      this.lastClockDisplay = display;
+      this.clockEl.textContent = display;
+    }
 
-    // 更新时钟容器位置/样式
+    // 每帧更新时钟容器位置/样式（位置随动画变化）
     const style = clockStylesMapping[frame];
     if (style) Object.assign(this.clockEl.style, style);
   }
@@ -260,9 +267,10 @@ export class Player {
 
       case State.ALARM_LOOP: {
         const next = this.frameIndex + 1;
+        const elapsed = Date.now() - this.alarmStartTime;
 
-        if (next >= this.alarmLoopEndIdx || Date.now() - this.alarmStartTime >= this.alarmDuration) {
-          if (Date.now() - this.alarmStartTime >= this.alarmDuration) {
+        if (next >= this.alarmLoopEndIdx || elapsed >= this.alarmDuration) {
+          if (elapsed >= this.alarmDuration) {
             this.state = State.TIKTOK;
             this.audio.stopAll();
             return this.tiktokStart;
