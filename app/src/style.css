@@ -12,11 +12,6 @@ html, body {
   background: #000;
 }
 
-img {
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-}
-
 /* ── 字体 ── */
 @font-face {
   font-family: "ClockFont";
@@ -36,6 +31,36 @@ img {
   background: #000;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* ── 加载指示器 ── */
+#loading {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  transition: opacity 0.3s ease;
+}
+
+#loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  animation: loading-pulse 1s ease-in-out infinite;
+}
+
+@keyframes loading-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
 }
 
 /* ── 帧容器（容器查询作用域 + Canvas 渲染） ── */

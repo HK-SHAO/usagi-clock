@@ -49,6 +49,10 @@ export class Player {
   // 乒乓循环边界（在 fullFrameList 中的下标）
   private readonly tiktokStart: number;
   private readonly tiktokEnd: number;
+  // 缓存状态机常用 findIndex 结果（避免动画循环中反复遍历）
+  private readonly alarmStartIdx: number;
+  private readonly alarmLoopStartIdx: number;
+  private readonly alarmLoopEndIdx: number;
 
   // Canvas 渲染
   private readonly ctx: CanvasRenderingContext2D;
@@ -82,32 +86,22 @@ export class Player {
     this.tiktokStart = list.findIndex((f) => f === tiktokLoopFrame.l);
     this.tiktokEnd = list.findIndex((f) => f === tiktokLoopFrame.r);
 
-    // 创建所有帧的离屏 Image 对象（不挂载到 DOM）
-    this.createFrameImages();
-  }
-
-  /** 创建离屏 Image 对象用于帧解码 */
-  private createFrameImages(): void {
-    for (const n of frameNumbers) {
-      const img = new Image();
-      img.src = framePath(n);
-      img.decoding = "async";
-      img.onerror = () => {
-        // 加载失败时标记，drawFrame 会跳过
-        this.frameImages.delete(n);
-      };
-      this.frameImages.set(n, img);
-    }
+    // 缓存状态机关键帧下标
+    this.alarmStartIdx = list.findIndex((f) => f === alarmFrame);
+    this.alarmLoopStartIdx = list.findIndex((f) => f === alarmLoopFrame.l);
+    this.alarmLoopEndIdx = list.findIndex((f) => f === alarmLoopFrame.r);
   }
 
   /**
    * 加载帧图片（两阶段）：
-   * Phase 1: 等待首帧加载完成 → 立即显示 + 启动动画
-   * Phase 2: 后台并行加载其余帧（不阻塞）
+   * Phase 1: 仅创建并等待首帧 → 立即显示 + 启动动画
+   * Phase 2: 后台创建并加载其余帧（不阻塞）
    */
   async loadFrames(): Promise<void> {
     const firstFrame = tiktokLoopFrame.l;
-    const firstImg = this.frameImages.get(firstFrame);
+
+    // 仅创建首帧 Image（避免 96 个并发请求抢占首帧带宽）
+    const firstImg = this.createImage(firstFrame);
 
     // Phase 1: 等待首帧
     if (firstImg && !firstImg.complete) {
@@ -123,12 +117,31 @@ export class Player {
     // 首帧就绪，立即绘制
     this.drawFrame();
 
-    // Phase 2: 后台加载其余帧（不阻塞）
+    // Phase 2: 后台创建并加载其余帧（不阻塞）
     void this.loadRemainingFrames();
   }
 
-  /** 后台加载其余帧 */
+  /** 创建单个离屏 Image 对象 */
+  private createImage(n: number): HTMLImageElement {
+    const img = new Image();
+    img.src = framePath(n);
+    img.decoding = "async";
+    img.onerror = () => {
+      this.frameImages.delete(n);
+    };
+    this.frameImages.set(n, img);
+    return img;
+  }
+
+  /** 后台创建并加载其余帧 */
   private async loadRemainingFrames(): Promise<void> {
+    // 创建其余帧的 Image 对象（首帧已存在则跳过）
+    for (const n of frameNumbers) {
+      if (!this.frameImages.has(n)) {
+        this.createImage(n);
+      }
+    }
+
     const pending = Array.from(this.frameImages.values()).filter(
       (img) => !img.complete,
     );
@@ -236,29 +249,25 @@ export class Player {
       }
 
       case State.ALARM: {
-        const alarmStart = this.fullFrameList.findIndex((f) => f === alarmFrame);
-        const loopStart = this.fullFrameList.findIndex((f) => f === alarmLoopFrame.l);
         const next = this.frameIndex + 1;
-        if (next >= loopStart) {
+        if (next >= this.alarmLoopStartIdx) {
           this.state = State.ALARM_LOOP;
           this.alarmStartTime = Date.now();
-          return loopStart;
+          return this.alarmLoopStartIdx;
         }
         return next;
       }
 
       case State.ALARM_LOOP: {
-        const loopStart = this.fullFrameList.findIndex((f) => f === alarmLoopFrame.l);
-        const loopEnd = this.fullFrameList.findIndex((f) => f === alarmLoopFrame.r);
         const next = this.frameIndex + 1;
 
-        if (next >= loopEnd || Date.now() - this.alarmStartTime >= this.alarmDuration) {
+        if (next >= this.alarmLoopEndIdx || Date.now() - this.alarmStartTime >= this.alarmDuration) {
           if (Date.now() - this.alarmStartTime >= this.alarmDuration) {
             this.state = State.TIKTOK;
             this.audio.stopAll();
-            return this.fullFrameList.findIndex((f) => f === tiktokLoopFrame.l);
+            return this.tiktokStart;
           }
-          return loopStart;
+          return this.alarmLoopStartIdx;
         }
         return next;
       }
@@ -269,9 +278,8 @@ export class Player {
 
   private triggerAlarm(): void {
     this.state = State.ALARM;
-    const idx = this.fullFrameList.findIndex((f) => f === alarmFrame);
-    if (idx !== -1) {
-      this.changeFrame((this.frameIndex = idx));
+    if (this.alarmStartIdx !== -1) {
+      this.changeFrame((this.frameIndex = this.alarmStartIdx));
     }
     this.audio.stopAll();
     this.audio.play(this.audio.alarmBuf, () => {
@@ -283,9 +291,8 @@ export class Player {
 
   private resetToTiktok(): void {
     this.state = State.TIKTOK;
-    const idx = this.fullFrameList.findIndex((f) => f === tiktokLoopFrame.l);
-    if (idx !== -1) {
-      this.changeFrame((this.frameIndex = idx));
+    if (this.tiktokStart !== -1) {
+      this.changeFrame((this.frameIndex = this.tiktokStart));
     }
     this.direction = 1;
     this.lastTiktokAudioTime = performance.now();

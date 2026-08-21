@@ -14,6 +14,7 @@ import {
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const clockEl = document.getElementById("clock")!;
 const audioHint = document.getElementById("audio-hint")!;
+const loadingEl = document.getElementById("loading")!;
 const settingsContainer = document.getElementById("settings-container")!;
 
 // ── 模块初始化 ──
@@ -25,14 +26,18 @@ let player: Player;
 
 /** 初始化入口 */
 async function init(): Promise<void> {
-  // 并行初始化音频引擎和闹钟调度
-  await Promise.all([audio.init(), schedule.load()]);
+  // 音频加载放后台，不阻塞视觉启动（AudioContext 需用户手势解锁，init 仅预加载 Buffer）
+  void audio.init();
+  void schedule.load();
 
   // 创建播放器，同步尺寸，等待首帧加载，然后启动动画
   player = new Player(canvas, clockEl, audio, schedule);
   player.syncSize();
   await player.loadFrames();
   player.start();
+
+  // 首帧已显示，隐藏加载指示器
+  loadingEl.classList.add("hidden");
 
   // 每日打卡
   void checkin();
@@ -106,14 +111,24 @@ function setupFullscreen(): void {
 }
 
 // ── 时钟点击 → 打开设置面板 ──
+// 同时监听 click + touchend：iOS Safari 的 click 有 ~350ms 延迟且可能被
+// ghost-click 预防机制干扰，touchend 更可靠。preventDefault 阻止两者重复触发。
 function setupClockClick(): void {
-  clockEl.addEventListener("click", (e) => {
+  let handled = false;
+  const openSettings = (e: Event) => {
+    e.preventDefault();
     e.stopPropagation();
+    if (handled) return;
+    handled = true;
+    // touchend 触发后短暂锁定期，防止后续合成 click 再次触发
+    setTimeout(() => { handled = false; }, 400);
     settingsPanel.open(schedule.settings, (newSettings) => {
       schedule.save(newSettings);
       player.checkAlarm();
     });
-  });
+  };
+  clockEl.addEventListener("click", openSettings);
+  clockEl.addEventListener("touchend", openSettings);
 }
 
 // ── 页面可见性恢复时 resume AudioContext ──
