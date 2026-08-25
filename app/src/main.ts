@@ -3,6 +3,7 @@ import { AudioEngine } from "./audio";
 import { Player } from "./player";
 import { AlarmSchedule } from "./schedule";
 import { SettingsPanel } from "./settings";
+import { TapHint } from "./hint";
 import { checkin } from "./toy";
 import {
   exitFullscreen,
@@ -23,6 +24,7 @@ const schedule = new AlarmSchedule();
 const settingsPanel = new SettingsPanel(settingsContainer);
 
 let player: Player;
+let tapHint: TapHint | null = null;
 
 /** 初始化入口 */
 async function init(): Promise<void> {
@@ -42,6 +44,9 @@ async function init(): Promise<void> {
   // 每日打卡
   void checkin();
 
+  // 点击时钟引导提示
+  tapHint = new TapHint("点击时钟，发现更多功能", document.getElementById("app")!);
+
   // 绑定交互
   setupAudioUnlock();
   setupFullscreen();
@@ -49,6 +54,7 @@ async function init(): Promise<void> {
   setupVisibilityHandler();
   setupResizeObserver();
   setupOrientationPrompt();
+  setupTapHint();
 
   // 2秒后若未解锁，显示提示
   if (!audio.unlocked) {
@@ -123,6 +129,7 @@ function setupClockClick(): void {
     handled = true;
     // touchend 触发后短暂锁定期，防止后续合成 click 再次触发
     setTimeout(() => { handled = false; }, 400);
+    tapHint?.hide();
     settingsPanel.open(schedule.settings, (newSettings) => {
       schedule.save(newSettings);
       player.checkAlarm();
@@ -152,14 +159,41 @@ function setupResizeObserver(): void {
   ro.observe(canvas);
 }
 
-// ── 竖屏提示：点击“知道了”后不再显示 ──
+// ── 竖屏提示：点击“知道了”后不再显示，并补上点击时钟引导 ──
 function setupOrientationPrompt(): void {
   const dismissBtn = document.getElementById("orientation-dismiss");
   const overlay = document.getElementById("orientation-prompt");
   if (!dismissBtn || !overlay) return;
   dismissBtn.addEventListener("click", () => {
     overlay.classList.add("dismissed");
+    tapHint?.show();
   });
+}
+
+// ── 点击时钟引导提示：刚打开延时出现一次；竖屏显示 / 横屏收起 ──
+function setupTapHint(): void {
+  const overlay = document.getElementById("orientation-prompt");
+  const portraitMq = window.matchMedia("(orientation: portrait)");
+
+  // 竖屏全屏遮罩可见时不打扰（被遮住，无意义）
+  const promptActive = () =>
+    !!overlay &&
+    !overlay.classList.contains("dismissed") &&
+    portraitMq.matches &&
+    window.innerWidth <= 900;
+
+  // 刚打开：首帧稳定后显示一次
+  setTimeout(() => {
+    if (!promptActive()) tapHint?.show();
+  }, 1500);
+
+  // 方向切换：竖屏提示 / 横屏收起
+  const onChange = () => {
+    if (promptActive()) tapHint?.hide();
+    else if (portraitMq.matches) tapHint?.show();
+    else tapHint?.hide();
+  };
+  portraitMq.addEventListener("change", onChange);
 }
 
 // ── 启动 ──
