@@ -58,7 +58,8 @@ export class Player {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly frameImages = new Map<number, HTMLImageElement>();
   private currentFrame: number | null = null;
-  private lastClockDisplay = "";
+  // 上次处理的分钟（0-1439），用于分钟变化时才更新时钟文字 / 检查闹钟
+  private lastMinute = -1;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -219,7 +220,7 @@ export class Player {
 
   // ── 帧切换 ──
 
-  /** 切换到指定帧（Canvas drawImage） */
+  /** 切换到指定帧（Canvas drawImage + 同步时钟容器样式） */
   private changeFrame(frameListIndex: number): void {
     const frame = this.fullFrameList[frameListIndex]!;
     if (this.currentFrame === frame) return;
@@ -227,18 +228,16 @@ export class Player {
     this.currentFrame = frame;
     this.drawFrame();
 
-    // 仅在分钟变化时更新时钟文字（避免每帧创建 Date + 写入 DOM）
-    const now = new Date();
-    const display =
-      `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    if (display !== this.lastClockDisplay) {
-      this.lastClockDisplay = display;
-      this.clockEl.textContent = display;
-    }
-
     // 每帧更新时钟容器位置/样式（位置随动画变化）
     const style = clockStylesMapping[frame];
     if (style) Object.assign(this.clockEl.style, style);
+  }
+
+  /** 更新时钟文字（分钟变化时调用，避免每帧 new Date） */
+  private updateClockText(): void {
+    const now = new Date();
+    this.clockEl.textContent =
+      `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   }
 
   // ── 状态机 ──
@@ -323,10 +322,10 @@ export class Player {
     const delta = time - this.lastFrameTime;
 
     if (delta >= this.frameInterval) {
-      // 滴答音频
+      // 滴答音频（提示音通道互斥，防止未解锁时排队源堆积）
       if (this.state === State.TIKTOK) {
         if (time - this.lastTiktokAudioTime >= this.tiktokAudioInterval) {
-          this.audio.play(this.audio.tiktokBuf);
+          this.audio.playTip(this.audio.tiktokBuf);
           this.lastTiktokAudioTime = time;
         }
       }
@@ -338,8 +337,13 @@ export class Player {
       // 修正时间偏差
       this.lastFrameTime = time - (delta % this.frameInterval);
 
-      // 检查闹钟
-      this.evaluateAlarm();
+      // 分钟变化时更新时钟文字并检查闹钟（闹钟/文字均分钟粒度，避免每帧 new Date）
+      const minute = Math.floor(Date.now() / 60000) % 1440;
+      if (minute !== this.lastMinute) {
+        this.lastMinute = minute;
+        this.updateClockText();
+        this.evaluateAlarm();
+      }
     }
 
     this.rafId = requestAnimationFrame((t) => this.animate(t));

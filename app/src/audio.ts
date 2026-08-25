@@ -7,6 +7,7 @@ import ulaAlarmLoopURL from "../../assets/ula-alarm-loop.wav";
  *
  * 关键设计：
  * - play() 在 suspended 状态下也立即 start source，浏览器排队后 resume 即出声，零丢失
+ * - playTip() 提示音通道互斥：未解锁排队时只保留最近一次，避免悬空源累积
  * - 音频加载带重试（指数退避），应对网络波动
  * - 全局 document click/touchstart/keydown 解锁，任意位置交互均可触发
  * - visibilitychange 恢复：tab 切回时自动 resume 被挂起的上下文
@@ -22,6 +23,8 @@ export class AudioEngine {
 
   private activeSources = new Set<AudioBufferSourceNode>();
   private loopSource: AudioBufferSourceNode | null = null;
+  /** 当前提示音源（滴答等高频音）：互斥，只保留最近一次 */
+  private tipSource: AudioBufferSourceNode | null = null;
   private _unlocked = false;
 
   /** 是否已解锁音频播放 */
@@ -94,14 +97,14 @@ export class AudioEngine {
     this._unlocked = true;
   }
 
-  /**
-   * 播放单次音频
-   * 即使 AudioContext 处于 suspended 也立即 start —— 浏览器排队，resume 后自动播放
-   */
-  play(buffer: AudioBuffer | null, onEnded?: () => void): void {
+  /** 创建并启动单次音频源（suspended 时排队，resume 后自动播放） */
+  private startSource(
+    buffer: AudioBuffer | null,
+    onEnded?: () => void,
+  ): AudioBufferSourceNode | null {
     const ctx = this.ctx;
     const gain = this.masterGain;
-    if (!ctx || !gain || !buffer) return;
+    if (!ctx || !gain || !buffer) return null;
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
@@ -116,10 +119,37 @@ export class AudioEngine {
     this.activeSources.add(source);
     source.start(0);
 
-    // suspended 时立即尝试恢复（source 已排队，恢复后自动播放）
     if (ctx.state === "suspended") {
-      void ctx.resume();
+      void ctx.resume().catch(() => {});
     }
+    return source;
+  }
+
+  /**
+   * 播放单次音频
+   * 即使 AudioContext 处于 suspended 也立即 start —— 浏览器排队，resume 后自动播放
+   */
+  play(buffer: AudioBuffer | null, onEnded?: () => void): void {
+    this.startSource(buffer, onEnded);
+  }
+
+  /**
+   * 播放提示音（滴答等高频单次音）：
+   * - 仅 AudioContext running 时播放；suspended 时直接丢弃（提示音无需补播，
+   *   解锁后自然恢复节奏，避免 resume 时补播排队源造成声音叠加）
+   * - 互斥：新滴答先停掉上一个，保证同一时刻最多一个提示音实例
+   */
+  playTip(buffer: AudioBuffer | null): void {
+    if (this.ctx?.state !== "running") return;
+    if (this.tipSource) {
+      try { this.tipSource.stop(); } catch {}
+      this.tipSource.disconnect();
+      this.tipSource = null;
+    }
+    const source = this.startSource(buffer, () => {
+      if (this.tipSource === source) this.tipSource = null;
+    });
+    if (source) this.tipSource = source;
   }
 
   /** 播放无缝循环音频 */
@@ -143,17 +173,18 @@ export class AudioEngine {
     this.loopSource = source;
 
     if (ctx.state === "suspended") {
-      void ctx.resume();
+      void ctx.resume().catch(() => {});
     }
   }
 
-  /** 停止所有音频（单次 + 循环） */
+  /** 停止所有音频（单次 + 提示音 + 循环） */
   stopAll(): void {
     this.activeSources.forEach((source) => {
       try { source.stop(); } catch {}
       source.disconnect();
     });
     this.activeSources.clear();
+    this.tipSource = null;
 
     if (this.loopSource) {
       try { this.loopSource.stop(); } catch {}

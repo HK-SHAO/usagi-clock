@@ -3,7 +3,7 @@ import { AudioEngine } from "./audio";
 import { Player } from "./player";
 import { AlarmSchedule } from "./schedule";
 import { SettingsPanel } from "./settings";
-import { TapHint } from "./hint";
+import { WELCOME_ITEMS, WelcomeModal } from "./welcome";
 import { checkin } from "./toy";
 import {
   exitFullscreen,
@@ -11,10 +11,12 @@ import {
   requestFullscreen,
 } from "./utils/full-screen";
 
+// ── 常量 ──
+const ORIENTATION_KEY = "usagi-clock-orientation-dismissed";
+
 // ── DOM 引用 ──
 const canvas = document.getElementById("stage") as HTMLCanvasElement;
 const clockEl = document.getElementById("clock")!;
-const audioHint = document.getElementById("audio-hint")!;
 const loadingEl = document.getElementById("loading")!;
 const settingsContainer = document.getElementById("settings-container")!;
 
@@ -24,12 +26,12 @@ const schedule = new AlarmSchedule();
 const settingsPanel = new SettingsPanel(settingsContainer);
 
 let player: Player;
-let tapHint: TapHint | null = null;
+let welcome: WelcomeModal | null = null;
 
 /** 初始化入口 */
 async function init(): Promise<void> {
   // 音频加载放后台，不阻塞视觉启动（AudioContext 需用户手势解锁，init 仅预加载 Buffer）
-  void audio.init();
+  void audio.init().catch(() => {});
   void schedule.load();
 
   // 创建播放器，同步尺寸，等待首帧加载，然后启动动画
@@ -44,8 +46,10 @@ async function init(): Promise<void> {
   // 每日打卡
   void checkin();
 
-  // 点击时钟引导提示
-  tapHint = new TapHint("点击时钟，发现更多功能", document.getElementById("app")!);
+  // 欢迎弹窗：融合「开启声音」与「点击时钟」引导，每次打开都展示，按钮点击同时解锁音频
+  welcome = new WelcomeModal(document.getElementById("app")!, WELCOME_ITEMS, () => {
+    void audio.unlock();
+  });
 
   // 绑定交互
   setupAudioUnlock();
@@ -54,25 +58,15 @@ async function init(): Promise<void> {
   setupVisibilityHandler();
   setupResizeObserver();
   setupOrientationPrompt();
-  setupTapHint();
-
-  // 2秒后若未解锁，显示提示
-  if (!audio.unlocked) {
-    setTimeout(() => {
-      if (!audio.unlocked) audioHint.classList.add("show");
-    }, 2000);
-    // 8秒后自动隐藏提示
-    setTimeout(() => audioHint.classList.remove("show"), 8000);
-  }
+  setupWelcome();
+  setupEscapeClose();
 }
 
 // ── 全局音频解锁：任意位置 click/touchstart/keydown 均可 ──
 function setupAudioUnlock(): void {
   const unlock = () => {
     if (audio.unlocked) return;
-    void audio.unlock().then(() => {
-      audioHint.classList.remove("show");
-    });
+    void audio.unlock();
   };
 
   document.addEventListener("click", unlock, true);
@@ -129,7 +123,6 @@ function setupClockClick(): void {
     handled = true;
     // touchend 触发后短暂锁定期，防止后续合成 click 再次触发
     setTimeout(() => { handled = false; }, 400);
-    tapHint?.hide();
     settingsPanel.open(schedule.settings, (newSettings) => {
       schedule.save(newSettings);
       player.checkAlarm();
@@ -159,19 +152,41 @@ function setupResizeObserver(): void {
   ro.observe(canvas);
 }
 
-// ── 竖屏提示：点击“知道了”后不再显示，并补上点击时钟引导 ──
+// ── 竖屏提示：点击"知道了"后不再显示（localStorage 记忆），并补上点击时钟引导 ──
 function setupOrientationPrompt(): void {
   const dismissBtn = document.getElementById("orientation-dismiss");
   const overlay = document.getElementById("orientation-prompt");
   if (!dismissBtn || !overlay) return;
+
+  // 已确认过的用户不再打扰（隐私模式等异常静默降级）
+  try {
+    if (localStorage.getItem(ORIENTATION_KEY)) {
+      overlay.classList.add("dismissed");
+    }
+  } catch {
+    // 忽略读取失败
+  }
   dismissBtn.addEventListener("click", () => {
     overlay.classList.add("dismissed");
-    tapHint?.show();
+    try {
+      localStorage.setItem(ORIENTATION_KEY, "1");
+    } catch {
+      // 忽略写入失败
+    }
+    // 横屏引导关闭后，补上欢迎弹窗（每次打开都展示，不受历史影响）
+    welcome?.show();
   });
 }
 
-// ── 点击时钟引导提示：刚打开延时出现一次；竖屏显示 / 横屏收起 ──
-function setupTapHint(): void {
+// ── 设置面板：ESC 关闭（桌面端习惯）──
+function setupEscapeClose(): void {
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") settingsPanel.close();
+  });
+}
+
+// ── 欢迎弹窗：每次打开都展示（无历史记忆）；竖屏引导遮罩可见时等其关闭 ──
+function setupWelcome(): void {
   const overlay = document.getElementById("orientation-prompt");
   const portraitMq = window.matchMedia("(orientation: portrait)");
 
@@ -182,18 +197,8 @@ function setupTapHint(): void {
     portraitMq.matches &&
     window.innerWidth <= 900;
 
-  // 刚打开：首帧稳定后显示一次
-  setTimeout(() => {
-    if (!promptActive()) tapHint?.show();
-  }, 1500);
-
-  // 方向切换：竖屏提示 / 横屏收起
-  const onChange = () => {
-    if (promptActive()) tapHint?.hide();
-    else if (portraitMq.matches) tapHint?.show();
-    else tapHint?.hide();
-  };
-  portraitMq.addEventListener("change", onChange);
+  // 首帧已显示（init 在 await loadFrames 之后才调用本函数），立即淡入引导
+  if (!promptActive()) welcome?.show();
 }
 
 // ── 启动 ──

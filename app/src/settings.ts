@@ -1,17 +1,6 @@
 import type { AlarmSettings } from "./schedule";
 import { fetchFollowState, fetchRank, openAuthorSpace, type FollowState, type RankData } from "./toy";
-
-/** 快捷创建 DOM 元素 */
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  cls?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text) e.textContent = text;
-  return e;
-}
+import { el } from "./utils/dom";
 
 /**
  * 报时设置面板（纯 DOM 操作）
@@ -47,21 +36,17 @@ export class SettingsPanel {
     this.render();
     this.overlay.classList.add("open");
 
-    // 拉取关注关系和榜单
-    void fetchFollowState().then((s) => {
-      this.followState = s;
-      this.render();
-    });
-    void fetchRank().then((r) => {
-      this.rank = r;
-      this.render();
-    });
+    // 拉取关注关系与榜单（合并为一次渲染）
+    const refresh = () => {
+      void Promise.all([fetchFollowState(), fetchRank()]).then(([s, r]) => {
+        this.followState = s;
+        this.rank = r;
+        this.render();
+      });
+    };
+    refresh();
 
     // 窗口获得焦点 / 可见性变化时刷新
-    const refresh = () => {
-      void fetchFollowState().then((s) => { this.followState = s; this.render(); });
-      void fetchRank().then((r) => { this.rank = r; this.render(); });
-    };
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     this.cleanupFns.push(

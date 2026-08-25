@@ -20,15 +20,37 @@ const DEFAULT_SETTINGS: AlarmSettings = {
 
 const STORAGE_KEY = "usagi-clock-alarm-settings";
 
+/** 读本地设置；数据损坏时降级默认值，不阻塞启动 */
+function readLocalSettings(): AlarmSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+/** 写本地设置；隐私模式 / 配额满时静默降级，仅内存生效 */
+function writeLocalSettings(settings: AlarmSettings): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // 忽略写入失败
+  }
+}
+
 /** 闹钟调度：整点报时 + 时间段闹钟，localStorage + Toy 云存储双写 */
 export class AlarmSchedule {
   settings: AlarmSettings;
 
+  /** 是否已处于当前闹钟时段内（时段内只响一次，避免循环） */
+  private inPeriod = false;
+  /** 上次整点报时的分钟（去重） */
+  private lastWholeMinute = -1;
+
   constructor() {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    this.settings = saved
-      ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) }
-      : { ...DEFAULT_SETTINGS };
+    this.settings = readLocalSettings();
   }
 
   /** 挂载后拉取 Toy 云存储设置（跟随登录态跨设备），命中则覆盖本地 */
@@ -37,13 +59,13 @@ export class AlarmSchedule {
     if (!cloud) return;
     const merged = { ...DEFAULT_SETTINGS, ...cloud };
     this.settings = merged;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    writeLocalSettings(merged);
   }
 
   /** 保存设置到 localStorage + Toy 云 */
   save(newSettings: AlarmSettings): void {
     this.settings = newSettings;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+    writeLocalSettings(newSettings);
     void saveCloudSettings(newSettings);
   }
 
@@ -64,20 +86,31 @@ export class AlarmSchedule {
     }
   }
 
-  /** 判断当前是否应触发闹钟 */
+  /** 判断当前是否应触发闹钟（时段内仅进入时触发一次；整点报时每整点一次） */
   shouldTriggerAlarm(): boolean {
     const now = new Date();
+    const minute = now.getHours() * 60 + now.getMinutes();
 
-    // 优先级1: 时间段闹钟开启且在时间段内
+    let trigger = false;
+
+    // 时间段闹钟：进入时段的当分钟触发一次，时段内不重复
     if (this.settings.periodAlarmEnabled && this.isInAlarmPeriod()) {
-      return true;
+      if (!this.inPeriod) trigger = true;
+      this.inPeriod = true;
+    } else {
+      this.inPeriod = false;
     }
 
-    // 优先级2: 整点报时开启且现在是整点
-    if (this.settings.wholeHourAlarmEnabled && now.getMinutes() === 0) {
-      return true;
+    // 整点报时：每个整点触发一次（同分钟去重，防重复调用）
+    if (
+      this.settings.wholeHourAlarmEnabled &&
+      now.getMinutes() === 0 &&
+      this.lastWholeMinute !== minute
+    ) {
+      this.lastWholeMinute = minute;
+      trigger = true;
     }
 
-    return false;
+    return trigger;
   }
 }
